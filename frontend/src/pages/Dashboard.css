@@ -1,0 +1,183 @@
+/* Dashboard Specific Styles */
+.dashboard-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.dashboard-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+.metrics-row {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.metric-card {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    flex: 1;
+    min-width: 150px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.metric-title {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.metric-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.metric-subtitle {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+/* Metric Colors matching Python App */
+.metric-excellent .metric-value {
+    color: var(--excellent);
+}
+
+.metric-good .metric-value {
+    color: var(--good);
+}
+
+.metric-okay .metric-value {
+    color: var(--okay);
+}
+
+.metric-poor .metric-value {
+    color: var(--poor);
+}
+
+.dashboard-main-row,
+.dashboard-bottom-row {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.map-panel {
+    flex: 2;
+    min-width: 400px;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.map-container {
+    height: 400px;
+    margin-top: 1rem;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.match-panel {
+    flex: 1;
+    min-width: 300px;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+}
+
+.inventory-panel {
+    flex: 3;
+    min-width: 500px;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    overflow-x: auto;
+}
+
+.news-panel-wrapper {
+    flex: 1;
+    min-width: 300px;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+h3 {
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
+    color: var(--text-primary);
+}
+
+/* React Table Styles */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.data-table th,
+.data-table td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+.data-table th {
+    background-color: var(--surface-hover);
+    font-weight: 600;
+    color: var(--text-secondary);
+    position: sticky;
+    top: 0;
+}
+
+.data-table tr:hover {
+    background-color: var(--surface-hover);
+}
+
+.badge {
+    padding: 0.2rem 0.6rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.badge-excellent {
+    background-color: rgba(0, 112, 32, 0.1);
+    color: var(--excellent);
+}
+
+.badge-good {
+    background-color: rgba(56, 161, 105, 0.1);
+    color: var(--good);
+}
+
+.badge-okay {
+    background-color: rgba(214, 158, 46, 0.1);
+    color: var(--okay);
+}
+
+.badge-poor {
+    background-color: rgba(229, 62, 62, 0.1);
+    color: var(--danger);
+}
