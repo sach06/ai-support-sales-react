@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useFilterStore } from '../../../store/useFilterStore';
-import { getCustomerProfile, generateProfile } from '../../../api/customerApi';
-import { exportDocx, exportPdf } from '../../../api/exportApi';
+import { useFilterStore } from '../store/useFilterStore';
+import { getCustomerProfile, generateProfile } from '../api/customerApi';
+import { exportDocx, exportPdf } from '../api/exportApi';
 
 import ProfileSections from './ProfileSections';
 import InventoryTable from './InventoryTable';

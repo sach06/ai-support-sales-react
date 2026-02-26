@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useFilterStore } from '../../../store/useFilterStore';
-import { useDataStore } from '../../../store/useDataStore';
-import { getRankedList, getModelStatus } from '../../../api/rankingApi';
+import { useFilterStore } from '../store/useFilterStore';
+import { useDataStore } from '../store/useDataStore';
+import { getRankedList, getModelStatus } from '../api/rankingApi';
 
 import RankingTable from './RankingTable';
 import RankingExplainer from './RankingExplainer';

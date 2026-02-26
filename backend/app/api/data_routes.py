@@ -136,4 +136,54 @@ def get_customers(
         if df.empty:
             return {"customers": [], "total": 0}
 
-        # Sanitize for
+        # Sanitize for NaN/Infinity
+        df = df.fillna("")
+        records = df.to_dict(orient="records")
+        return {"customers": records, "total": len(records)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── /api/data/plants ──────────────────────────────────────────────────────────
+
+@router.get("/plants")
+def get_plants(
+    region: Optional[str] = Query(default="All"),
+    country: Optional[str] = Query(default="All"),
+    equipment_type: Optional[str] = Query(default="All"),
+    company_name: Optional[str] = Query(default="All"),
+):
+    """Return detailed plant data for the map and inventory table."""
+    try:
+        df = data_service.get_detailed_plant_data(
+            equipment_type=equipment_type,
+            country=country,
+            region=region,
+            company_name=company_name
+        )
+        if df.empty:
+            return {"plants": [], "total": 0}
+
+        df = df.fillna("")
+        records = df.to_dict(orient="records")
+        return {"plants": records, "total": len(records)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── /api/data/logs ────────────────────────────────────────────────────────────
+
+@router.get("/logs")
+def get_logs():
+    return {"logs": data_service.get_logs()}
+
+
+# ── /api/data/enrich-geo ──────────────────────────────────────────────────────
+
+@router.post("/enrich-geo")
+def enrich_geo(background_tasks: BackgroundTasks):
+    try:
+        background_tasks.add_task(data_service.enrich_geo_coordinates)
+        return {"success": True, "message": "Background enrichment started."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

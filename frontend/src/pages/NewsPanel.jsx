@@ -1,6 +1,6 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import api from '../../../api/client';
+import api from '../api/client';
 
 const fetchNews = async ({ queryKey }) => {
     const [_key, companyName] = queryKey;

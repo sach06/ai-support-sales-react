@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from app.services.data_service import data_service
 from app.services.profile_generator import profile_generator
 from app.services.financial_service import financial_service
-from app.services.historical_service import historical_service
+import app.services.historical_service as historical_service
 from app.services.web_enrichment_service import web_enrichment_service
 
 router = APIRouter()
@@ -34,7 +34,7 @@ def get_customer_profile(customer_name: str = URLPath(...)):
         installed_data = data_service.get_detailed_plant_data(company_name=actual_name)
         fin_history = financial_service.get_financial_history(actual_name)
         balances = financial_service.get_latest_balance_sheet(actual_name)
-        history = historical_service.get_customer_history(actual_name)
+        history = historical_service.get_yearly_performance(actual_name)
         
         return {
             "customer_name": actual_name,
@@ -63,7 +63,7 @@ def generate_steckbrief(customer_name: str = URLPath(...)):
         installed_data = data_service.get_detailed_plant_data(company_name=actual_name)
         fin_history = financial_service.get_financial_history(actual_name)
         balances = financial_service.get_latest_balance_sheet(actual_name)
-        history = historical_service.get_customer_history(actual_name)
+        history = historical_service.get_yearly_performance(actual_name)
         
         # Build comprehensive dict
         full_data = {

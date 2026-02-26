@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useFilterStore } from '../../../store/useFilterStore';
-import { useDataStore } from '../../../store/useDataStore';
-import api from '../../../api/client';
+import { useFilterStore } from '../store/useFilterStore';
+import { useDataStore } from '../store/useDataStore';
+import api from '../api/client';
 import MetricCard from './MetricCard';
 import GeoMap from './GeoMap';
 import InventoryTable from './InventoryTable';
