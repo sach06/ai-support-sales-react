@@ -1,0 +1,275 @@
+/* Ranking Page Specific Styles */
+.ranking-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.ranking-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 60vh;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+/* Status Banner */
+.status-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    border-radius: 8px;
+    font-size: 0.95rem;
+}
+
+.banner-success {
+    background-color: rgba(56, 161, 105, 0.1);
+    border: 1px solid var(--good);
+    color: var(--excellent);
+}
+
+.banner-warning {
+    background-color: rgba(221, 107, 32, 0.1);
+    border: 1px solid var(--warning);
+    color: #9c4221;
+}
+
+.banner-content {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.banner-icon {
+    font-size: 1.25rem;
+}
+
+.banner-actions label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+/* Split Layout */
+.ranking-main-split {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.table-section {
+    flex: 2;
+    min-width: 500px;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+}
+
+.explainer-section {
+    flex: 1;
+    min-width: 350px;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.explainer-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Table overrides */
+.ranking-table-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    width: 100%;
+}
+
+.table-scroll-wrapper {
+    max-height: 500px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+
+.ranking-table {
+    width: 100%;
+}
+
+.clickable-row {
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.clickable-row:hover {
+    background-color: var(--primary-light);
+}
+
+.clickable-row.row-selected {
+    background-color: rgba(43, 108, 176, 0.1);
+    border-left: 3px solid #2b6cb0;
+}
+
+.table-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.btn-secondary {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background-color: var(--surface-hover);
+}
+
+.btn-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Explainer specific */
+.ranking-explainer {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.explainer-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-secondary);
+    font-style: italic;
+    text-align: center;
+}
+
+.explainer-header {
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 1rem;
+    margin-bottom: 1rem;
+}
+
+.company-name {
+    margin: 0;
+    font-size: 1.5rem;
+    color: var(--primary);
+}
+
+.big-score {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--excellent);
+}
+
+.company-meta {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+}
+
+.explainer-body h4 {
+    margin-bottom: 1rem;
+    font-size: 1rem;
+}
+
+.no-features-msg {
+    color: var(--text-secondary);
+    font-style: italic;
+    font-size: 0.9rem;
+}
+
+.feature-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.feature-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.9rem;
+}
+
+.feature-name {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.impact-bar-container {
+    width: 100%;
+    height: 6px;
+    background-color: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.impact-bar {
+    height: 100%;
+    background-color: var(--primary);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.action-button-container {
+    margin-top: auto;
+}
+
+/* Charts Section */
+.ranking-charts-section {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+}
+
+.ranking-charts-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.chart-wrapper {
+    flex: 1;
+    min-width: 400px;
+    background-color: var(--background);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.chart-wrapper h4 {
+    margin: 0 0 1rem 0;
+    font-size: 0.9rem;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.chart-full-width {
+    min-width: 100%;
+}
