@@ -1,0 +1,51 @@
+{
+  "model_version": "xgb_priority_v1",
+  "trained_at": "2026-02-24T14:31:36.454783",
+  "data_snapshot_id": "20260224_143116",
+  "feature_columns": [
+    "equipment_age",
+    "is_sms_oem",
+    "equipment_type_enc",
+    "country_enc",
+    "crm_rating_num",
+    "log_fte",
+    "crm_projects_count"
+  ],
+  "xgb_params": {
+    "objective": "binary:logistic",
+    "eval_metric": "auc",
+    "tree_method": "hist",
+    "max_depth": 5,
+    "learning_rate": 0.05,
+    "n_estimators": 500,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "min_child_weight": 5,
+    "reg_alpha": 0.1,
+    "reg_lambda": 1.0,
+    "scale_pos_weight": 0.7052307692307692,
+    "random_state": 42,
+    "n_jobs": -1,
+    "verbosity": 0
+  },
+  "metrics": {
+    "auc_cv_mean": 0.8122450088358576,
+    "auc_cv_std": 0.011193150708574554,
+    "auc_test": 0.8346363776797514,
+    "precision_at_10": 1.0,
+    "ndcg_at_10": 1.0,
+    "n_estimators_used": 500,
+    "train_size": 2771,
+    "test_size": 693,
+    "pos_rate_train": 0.5864308913749549
+  },
+  "feature_importance": {
+    "country_enc": 0.4033467173576355,
+    "equipment_type_enc": 0.3494344651699066,
+    "equipment_age": 0.24721886217594147,
+    "is_sms_oem": 0.0,
+    "crm_rating_num": 0.0,
+    "log_fte": 0.0,
+    "crm_projects_count": 0.0
+  }
+}

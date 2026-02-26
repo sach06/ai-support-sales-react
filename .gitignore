@@ -1,0 +1,7 @@
+venv/  
+node_modules/  
+.env  
+data/sales_app.db  
+data/sales_app.db.wal  
+__pycache__/  
+.DS_Store 
