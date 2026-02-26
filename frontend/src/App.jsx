@@ -3,9 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Layout from './components/layout/Layout';
 import DashboardPage from './pages/DashboardPage';
 import RankingPage from './pages/RankingPage';
-
-// Placeholder Pages (To be built in later Modules)
-const Customer = () => <div><h2>Customer Details Placeholder</h2><p>Generated Steckbriefs will go here.</p></div>;
+import CustomerDetailPage from './pages/CustomerDetailPage';
 
 function App() {
   return (
@@ -14,7 +12,7 @@ function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<DashboardPage />} />
           <Route path="ranking" element={<RankingPage />} />
-          <Route path="customer" element={<Customer />} />
+          <Route path="customer" element={<CustomerDetailPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
