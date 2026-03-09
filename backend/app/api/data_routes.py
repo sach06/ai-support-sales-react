@@ -21,6 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from app.services.data_service import data_service
+from app.utils.json_utils import df_to_json_safe, json_safe_sanitize
 
 router = APIRouter()
 
@@ -202,16 +203,7 @@ def get_equipment_types():
     return {"equipment_types": data_service.FIXED_EQUIPMENT_LIST}
 
 
-# ── Shared sanitizer (handles nullable Int32/Float64 from DuckDB) ────────────
-def _df_to_json_safe(df):
-    """Convert a DataFrame to a JSON-safe list of dicts.
-    DuckDB returns nullable int/float columns (Int32, Float64 with capital)
-    that cannot be fillna(""). We instead do a json round-trip which converts
-    every value to a native Python type via default=str.
-    """
-    import json
-    records = df.to_dict(orient="records")
-    return json.loads(json.dumps(records, default=str))
+# Sanitization handled by app.utils.json_utils
 
 
 # ── /api/data/customers ───────────────────────────────────────────────────────
@@ -233,7 +225,7 @@ def get_customers(
         )
         if df.empty:
             return {"customers": [], "total": 0}
-        clean = _df_to_json_safe(df)
+        clean = df_to_json_safe(df)
         return {"customers": clean, "total": len(clean)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -259,7 +251,7 @@ def get_plants(
         )
         if df.empty:
             return {"plants": [], "total": 0}
-        clean = _df_to_json_safe(df)
+        clean = df_to_json_safe(df)
         return {"plants": clean, "total": len(clean)}
     except Exception as e:
         print(f"ERROR in /plants: {traceback.format_exc()}")

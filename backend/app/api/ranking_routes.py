@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from app.services.ml_ranking_service import ml_ranking_service
+from app.utils.json_utils import df_to_json_safe
 
 router = APIRouter()
 
@@ -44,7 +45,8 @@ def get_ranked_list(
                 rec["opportunity_type"] = "Service Contract"
                 rec["opportunity_description"] = f"Modern equipment ({age:.1f} yrs). Focus on predictive maintenance and spares."
                 
-        return {"rankings": records}
+        from app.utils.json_utils import json_safe_sanitize
+        return {"rankings": json_safe_sanitize(records)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

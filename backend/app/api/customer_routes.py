@@ -14,6 +14,7 @@ from app.services.profile_generator import profile_generator
 from app.services.financial_service import financial_service
 import app.services.historical_service as historical_service
 from app.services.web_enrichment_service import web_enrichment_service
+from app.utils.json_utils import df_to_json_safe, json_safe_sanitize
 import pandas as pd
 import json
 import math
@@ -22,23 +23,7 @@ import numpy as np
 router = APIRouter()
 
 def _safe_json(obj):
-    """Convert pandas/numpy types into python natives so fastAPI doesn't crash."""
-    if isinstance(obj, pd.DataFrame):
-        obj = obj.replace({float('nan'): None})
-        return json.loads(json.dumps(obj.to_dict(orient="records"), default=str))
-    elif isinstance(obj, dict):
-        return {k: _safe_json(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [_safe_json(v) for v in obj]
-    elif isinstance(obj, np.ndarray):
-        return _safe_json(obj.tolist())
-    elif isinstance(obj, np.integer):
-        return int(obj)
-    elif isinstance(obj, np.floating):
-        return None if np.isnan(obj) or np.isinf(obj) else float(obj)
-    elif isinstance(obj, float) and math.isnan(obj):
-        return None
-    return obj
+    return json_safe_sanitize(obj)
 
 
 @router.get("/{customer_name}")
