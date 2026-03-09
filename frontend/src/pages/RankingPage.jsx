@@ -82,7 +82,7 @@ const RankingPage = () => {
                         <RankingTable
                             data={rankings || []}
                             onRowSelect={setSelectedCompany}
-                            selectedId={selectedCompany?.company_name} // using name as id since db id not guaranteed 
+                            selectedId={selectedCompany?.company} // using name as id since db id not guaranteed 
                         />
                     )}
                 </div>

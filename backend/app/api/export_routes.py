@@ -18,7 +18,7 @@ router = APIRouter()
 
 @router.post("/docx")
 def export_docx(payload: Dict[str, Any] = Body(...)):
-    """Export profile to DOCX."""
+    """Export profile to Enhanced DOCX."""
     profile = payload.get("profile")
     customer_name = payload.get("customer_name")
     
@@ -26,8 +26,14 @@ def export_docx(payload: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=400, detail="Missing profile or customer_name in payload")
         
     try:
-        buffer = export_service.generate_docx(profile, customer_name)
-        filename = export_service.generate_filename(customer_name, "docx")
+        # Better: use the comprehensive version if possible
+        # We might need raw data for some sections; use profile data as proxy if missing
+        buffer = enhanced_export_service.generate_comprehensive_docx(
+            customer_name=customer_name,
+            profile_data=profile,
+            customer_data={} # Pass empty to use profile as source
+        )
+        filename = enhanced_export_service.generate_filename(customer_name, "docx")
         
         return StreamingResponse(
             buffer,
@@ -35,6 +41,8 @@ def export_docx(payload: Dict[str, Any] = Body(...)):
             headers={"Content-Disposition": f"attachment; filename*=utf-8''{quote(filename)}"}
         )
     except Exception as e:
+        import traceback
+        print(f"DOCX Export error: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -48,8 +56,13 @@ def export_pdf(payload: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=400, detail="Missing profile or customer_name in payload")
         
     try:
-        buffer = enhanced_export_service.generate_enhanced_pdf(profile, customer_name)
-        filename = export_service.generate_filename(customer_name, "pdf")
+        # Using the comprehensive PDF method
+        buffer = enhanced_export_service.generate_comprehensive_pdf(
+            customer_name=customer_name,
+            profile_data=profile,
+            customer_data={} # Pass empty to avoid crashes, service will use profile_data
+        )
+        filename = enhanced_export_service.generate_filename(customer_name, "pdf")
         
         return StreamingResponse(
             buffer,
@@ -57,4 +70,6 @@ def export_pdf(payload: Dict[str, Any] = Body(...)):
             headers={"Content-Disposition": f"attachment; filename*=utf-8''{quote(filename)}"}
         )
     except Exception as e:
+        import traceback
+        print(f"PDF Export error: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))

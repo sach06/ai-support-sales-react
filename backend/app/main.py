@@ -2,9 +2,13 @@
 FastAPI Backend Entry Point
 AI Supported Sales Application
 """
+import json
+import math
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from app.api import data_routes, ranking_routes, customer_routes, export_routes
+
 
 app = FastAPI(
     title="AI Sales App API",

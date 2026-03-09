@@ -3,15 +3,45 @@ Financial Service - Cost analysis, budget tracking, and financial projections
 """
 import pandas as pd
 import numpy as np
+import json
+import logging
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
-import logging
+
+from app.core.config import settings
+
+try:
+    from openai import AzureOpenAI, OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
-
 class FinancialService:
     """Service for financial analysis and cost management"""
+    
+    def __init__(self):
+        self.client = None
+        if OPENAI_AVAILABLE:
+            self._initialize_client()
+            
+    def _initialize_client(self):
+        """Initialize OpenAI client for public financial data synthesis"""
+        try:
+            self.model = "gpt-4" # default
+            if settings.use_azure_openai:
+                self.client = AzureOpenAI(
+                    api_key=settings.AZURE_OPENAI_API_KEY,
+                    api_version=settings.AZURE_OPENAI_API_VERSION,
+                    azure_endpoint=settings.AZURE_OPENAI_ENDPOINT
+                )
+                self.model = settings.AZURE_OPENAI_DEPLOYMENT
+            elif settings.use_openai:
+                self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
+                self.model = "gpt-4"
+        except Exception:
+            self.client = None
     
     def get_cost_breakdown(self, project_data: Dict) -> Dict:
         """
@@ -280,6 +310,60 @@ class FinancialService:
             'efficiency_rating': rating,
             'benchmark_comparison': 0  # Would require external benchmark data
         }
+
+    def get_financial_history(self, customer_name: str) -> List[Dict]:
+        """Fetch/Synthesize 10-year financial history for a customer."""
+        if not self.client:
+            return []
+            
+        try:
+            prompt = f"""Generate a 10-year historical financial summary (2015-2024) for the company '{customer_name}'.
+            Use your knowledge of global business data filtered through sources like Yahoo Finance, Investing.com, SEC EDGAR, and World Bank Open Data.
+            Return ONLY a JSON array of objects with keys: 'year', 'revenue_m_eur', 'ebitda_m_eur'.
+            Estimate values in Millions of EUR if exact figures aren't known. Ensure trends are realistic for the steel/industrial sector."""
+            
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                response_format={"type": "json_object"} if "gpt-4-turbo" in self.model or "gpt-4o" in self.model else None
+            )
+            
+            content = response.choices[0].message.content
+            data = json.loads(content)
+            # Handle if LLM wraps it in a key
+            if isinstance(data, dict):
+                for k in data:
+                    if isinstance(data[k], list):
+                        return data[k]
+            return data if isinstance(data, list) else []
+        except Exception as e:
+            logger.error(f"Failed to synthesize financial history for {customer_name}: {e}")
+            return []
+        
+    def get_latest_balance_sheet(self, customer_name: str) -> Dict:
+        """Fetch/Synthesize latest balance sheet overview."""
+        if not self.client:
+            return {}
+            
+        try:
+            prompt = f"""Generate a brief balance sheet summary for '{customer_name}' (latest available year).
+            Focus on Assets, Liabilities, and Equity. 
+            Use your knowledge of public filings (SEC EDGAR, etc.).
+            Return ONLY a JSON object with keys: 'assets', 'liabilities', 'equity'.
+            Keep descriptions concise (max 20 words each)."""
+            
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                response_format={"type": "json_object"} if "gpt-4-turbo" in self.model or "gpt-4o" in self.model else None
+            )
+            
+            return json.loads(response.choices[0].message.content)
+        except Exception as e:
+            logger.error(f"Failed to synthesize balance sheet for {customer_name}: {e}")
+            return {"assets": "Data not available", "liabilities": "Data not available", "equity": "Data not available"}
 
 
 # Singleton instance

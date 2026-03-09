@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useLocation, Link, Outlet } from 'react-router-dom';
 import { useFilterStore } from '../../store/useFilterStore';
 import { useDataStore } from '../../store/useDataStore';
 import { useQuery } from '@tanstack/react-query';
-import { getCountries, getRegions, getEquipmentTypes, getCustomers, loadData } from '../../api/dataApi';
+import { getCountries, getRegions, getEquipmentTypes, getCustomers, loadData, getLoadProgress } from '../../api/dataApi';
 import api from '../../api/client';
 import './Layout.css';
 
@@ -23,6 +23,10 @@ const Layout = () => {
 
     // UI fetching
     const [loadingDb, setLoadingDb] = useState(false);
+    const [loadProgress, setLoadProgress] = useState(null);
+    const [rematching, setRematching] = useState(false);
+    const [rematchMsg, setRematchMsg] = useState('');
+    const pollRef = useRef(null);
 
     // Queries to fetch the filter lists (Countries, Regions, Equipment)
     const { data: regionsList = ['All'] } = useQuery({ queryKey: ['regions'], queryFn: getRegions, enabled: dataLoaded });
@@ -60,24 +64,78 @@ const Layout = () => {
         checkStatus();
     }, [setDataLoaded]);
 
+    // Progress polling
+    const stopPolling = useCallback(() => {
+        if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+        }
+    }, []);
+
+    const startPolling = useCallback(() => {
+        stopPolling();
+        pollRef.current = setInterval(async () => {
+            try {
+                const progress = await getLoadProgress();
+                setLoadProgress(progress);
+
+                // Sync logs
+                if (progress.logs && progress.logs.length > 0) {
+                    clearLogs();
+                    progress.logs.forEach(addLog);
+                }
+
+                if (progress.done) {
+                    stopPolling();
+                    setLoadingDb(false);
+                    if (!progress.error) {
+                        setDataLoaded(true);
+                    }
+                    // Keep progress visible for 3 seconds after completion
+                    setTimeout(() => {
+                        if (!progress.error) {
+                            setLoadProgress(null);
+                        }
+                    }, 3000);
+                }
+            } catch (err) {
+                console.error("Failed to poll progress:", err);
+            }
+        }, 1000);
+    }, [stopPolling, clearLogs, addLog, setDataLoaded]);
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => stopPolling();
+    }, [stopPolling]);
+
     const handleLoadData = async () => {
         setLoadingDb(true);
+        setLoadProgress({ running: true, step: 'Starting...', percent: 0, done: false, error: null, logs: [] });
         clearLogs();
         try {
-            const result = await loadData();
-            if (result.success) {
-                setDataLoaded(true);
-                result.logs.forEach(addLog);
-            } else {
-                addLog(result.message);
-            }
+            await loadData();
+            startPolling();
         } catch (error) {
             console.error("Failed to load data:", error);
             addLog("Error loading data: " + error.message);
-        } finally {
             setLoadingDb(false);
+            setLoadProgress({ running: false, step: 'Error', percent: 0, done: true, error: error.message, logs: [] });
         }
-    }
+    };
+
+    const handleRematchPoor = async () => {
+        setRematching(true);
+        setRematchMsg('Re-matching poor entries...');
+        try {
+            const res = await api.post('/data/rematch-poor');
+            setRematchMsg(res.data.message || 'Rematch started. Reload data when complete.');
+        } catch (error) {
+            setRematchMsg('Rematch failed: ' + (error.response?.data?.detail || error.message));
+        } finally {
+            setRematching(false);
+        }
+    };
 
 
     const navigation = [
@@ -159,7 +217,25 @@ const Layout = () => {
                     <h3 className="sidebar-section-title">Settings</h3>
                     <div className="data-management">
                         <h4>Data Management</h4>
-                        {dataLoaded && <div className="success-box">Data is loaded</div>}
+                        {dataLoaded && !loadingDb && <div className="success-box">Data is loaded</div>}
+
+                        {/* Progress Bar */}
+                        {loadProgress && (loadProgress.running || loadProgress.done) && (
+                            <div className="load-progress-container">
+                                <div className="load-progress-step">{loadProgress.step}</div>
+                                <div className="load-progress-bar-track">
+                                    <div
+                                        className={`load-progress-bar-fill ${loadProgress.done && !loadProgress.error ? 'complete' : ''} ${loadProgress.error ? 'error' : ''}`}
+                                        style={{ width: `${loadProgress.percent}%` }}
+                                    />
+                                </div>
+                                <div className="load-progress-percent">{loadProgress.percent}%</div>
+                                {loadProgress.error && (
+                                    <div className="load-progress-error">{loadProgress.error}</div>
+                                )}
+                            </div>
+                        )}
+
                         <button
                             className="btn-primary load-btn"
                             onClick={handleLoadData}
@@ -167,6 +243,21 @@ const Layout = () => {
                         >
                             {loadingDb ? 'Loading...' : 'Load Data'}
                         </button>
+
+                        {dataLoaded && (
+                            <>
+                                <button
+                                    className="btn-secondary load-btn"
+                                    style={{ marginTop: '0.5rem', fontSize: '0.78rem', background: 'var(--surface-hover)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
+                                    onClick={handleRematchPoor}
+                                    disabled={rematching || loadingDb}
+                                    title="Re-match all poor/unmatched company entries using LLM + web search"
+                                >
+                                    {rematching ? '🔄 Re-matching...' : '🔍 Rematch Poor Entries'}
+                                </button>
+                                {rematchMsg && <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.35rem', lineHeight: '1.4' }}>{rematchMsg}</div>}
+                            </>
+                        )}
                     </div>
 
                     {logs.length > 0 && (

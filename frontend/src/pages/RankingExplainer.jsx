@@ -31,8 +31,8 @@ const RankingExplainer = ({ rowData }) => {
         <div className="ranking-explainer">
             <div className="explainer-header">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 className="company-name">{rowData.company_name}</h3>
-                    <div className="big-score">{(rowData.score * 100).toFixed(1)}</div>
+                    <h3 className="company-name">{rowData.company}</h3>
+                    <div className="big-score">{typeof rowData.priority_score === 'number' ? rowData.priority_score.toFixed(1) : '0.0'}</div>
                 </div>
                 {rowData.country && <div className="company-meta">{rowData.country} • {rowData.equipment_type || 'Mixed Equipment'}</div>}
             </div>
@@ -63,7 +63,7 @@ const RankingExplainer = ({ rowData }) => {
 
                 <div className="action-button-container">
                     {/* Note: This logic would be hooked up to React Router in actual usage to redirect */}
-                    <button className="btn-primary" onClick={() => alert(`Redirect to customer profile for ${rowData.company_name}`)}>
+                    <button className="btn-primary" onClick={() => alert(`Redirect to customer profile for ${rowData.company}`)}>
                         View Full Profile
                     </button>
                 </div>

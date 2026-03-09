@@ -7,19 +7,31 @@ import MetricCard from './MetricCard';
 import GeoMap from './GeoMap';
 import InventoryTable from './InventoryTable';
 import MatchQualityPanel from './MatchQualityPanel';
+import StatisticsPanel from './StatisticsPanel';
 import NewsPanel from './NewsPanel';
 import './Dashboard.css';
 
 const fetchDashboardData = async ({ queryKey }) => {
     const [_key, filters] = queryKey;
-    // We need plant data for the map and inventory table
     const response = await api.get('/data/plants', {
         params: {
             country: filters.country,
             region: filters.region,
             equipment_type: filters.equipmentType,
-            company_name: filters.companyName
-        }
+            company_name: filters.companyName,
+        },
+    });
+    return response.data;
+};
+
+const fetchStats = async ({ queryKey }) => {
+    const [_key, filters] = queryKey;
+    const response = await api.get('/data/stats', {
+        params: {
+            country: filters.country,
+            region: filters.region,
+            equipment_type: filters.equipmentType,
+        },
     });
     return response.data;
 };
@@ -28,32 +40,42 @@ const DashboardPage = () => {
     const { country, region, equipmentType, companyName } = useFilterStore();
     const { dataLoaded } = useDataStore();
 
-    // Query for dashboard plant data
+    const filters = { country, region, equipmentType, companyName };
+
     const { data: dashboardData, isLoading, isError } = useQuery({
-        queryKey: ['dashboard_plants', { country, region, equipmentType, companyName }],
+        queryKey: ['dashboard_plants', filters],
         queryFn: fetchDashboardData,
         enabled: dataLoaded,
     });
 
+    const { data: statsData } = useQuery({
+        queryKey: ['dashboard_stats', { country, region, equipmentType }],
+        queryFn: fetchStats,
+        enabled: dataLoaded,
+        staleTime: 60_000,
+    });
+
     const plants = dashboardData?.plants || [];
 
-    // Calculate match metrics
     const metrics = useMemo(() => {
-        let total = plants.length;
+        const total = plants.length;
         if (total === 0) return { total: 0, excellent: 0, good: 0, okay: 0, poor: 0 };
-
         const counts = plants.reduce((acc, plant) => {
-            const type = plant.match_type || 'Poor';
+            const score = plant['Matching Quality %'] || 0;
+            let type = 'Poor';
+            if (score === 100) type = 'Excellent';
+            else if (score >= 80) type = 'Good';
+            else if (score >= 50) type = 'Okay';
+
             acc[type] = (acc[type] || 0) + 1;
             return acc;
         }, {});
-
         return {
             total,
             excellent: counts['Excellent'] || 0,
             good: counts['Good'] || 0,
             okay: counts['Okay'] || 0,
-            poor: counts['Poor'] || 0
+            poor: counts['Poor'] || 0,
         };
     }, [plants]);
 
@@ -73,38 +95,22 @@ const DashboardPage = () => {
         <div className="dashboard-container">
             {/* Top Metrics Row */}
             <div className="metrics-row">
-                <MetricCard
-                    title="Total Machines"
-                    value={metrics.total}
-                    subtitle="In Selection"
-                />
-                <MetricCard
-                    title="Excellent Matches"
-                    value={metrics.excellent}
+                <MetricCard title="Total Machines" value={metrics.total} subtitle="In Selection" />
+                <MetricCard title="Excellent Matches" value={metrics.excellent}
                     subtitle={metrics.total > 0 ? `${Math.round((metrics.excellent / metrics.total) * 100)}% of total` : '0%'}
-                    colorClass="metric-excellent"
-                />
-                <MetricCard
-                    title="Good Matches"
-                    value={metrics.good}
+                    colorClass="metric-excellent" />
+                <MetricCard title="Good Matches" value={metrics.good}
                     subtitle={metrics.total > 0 ? `${Math.round((metrics.good / metrics.total) * 100)}% of total` : '0%'}
-                    colorClass="metric-good"
-                />
-                <MetricCard
-                    title="Okay Matches"
-                    value={metrics.okay}
+                    colorClass="metric-good" />
+                <MetricCard title="Okay Matches" value={metrics.okay}
                     subtitle={metrics.total > 0 ? `${Math.round((metrics.okay / metrics.total) * 100)}% of total` : '0%'}
-                    colorClass="metric-okay"
-                />
-                <MetricCard
-                    title="Poor Matches"
-                    value={metrics.poor}
+                    colorClass="metric-okay" />
+                <MetricCard title="Poor Matches" value={metrics.poor}
                     subtitle={metrics.total > 0 ? `${Math.round((metrics.poor / metrics.total) * 100)}% of total` : '0%'}
-                    colorClass="metric-poor"
-                />
+                    colorClass="metric-poor" />
             </div>
 
-            {/* Map and Match Details Row */}
+            {/* Map + Statistics Panel Row */}
             <div className="dashboard-main-row">
                 <div className="map-panel">
                     <h3>Geographic Distribution</h3>
@@ -113,9 +119,9 @@ const DashboardPage = () => {
                     </div>
                 </div>
 
-                <div className="match-panel">
-                    <h3>Data Linkage Quality</h3>
-                    <MatchQualityPanel data={plants} />
+                <div className="stats-section match-panel">
+                    <h3>Fleet Statistics &amp; Distributions</h3>
+                    <StatisticsPanel summary={statsData?.summary} />
                 </div>
             </div>
 
@@ -125,13 +131,10 @@ const DashboardPage = () => {
                     <h3>Plant Inventory</h3>
                     <InventoryTable data={plants} />
                 </div>
-
-                {companyName !== 'All' && (
-                    <div className="news-panel-wrapper">
-                        <h3>Latest '{companyName}' News</h3>
-                        <NewsPanel companyName={companyName} />
-                    </div>
-                )}
+                <div className="news-panel-wrapper">
+                    <h3>{companyName === 'All' ? 'Global Market News' : `Latest '${companyName}' News`}</h3>
+                    <NewsPanel companyName={companyName} equipmentType={equipmentType} country={country} />
+                </div>
             </div>
         </div>
     );

@@ -29,3 +29,13 @@ export const getCustomers = async (filters) => {
     const response = await api.get('/data/customers', { params: filters });
     return response.data;
 };
+
+export const getLoadProgress = async () => {
+    const response = await api.get('/data/progress');
+    return response.data;
+};
+
+export const getPlants = async (filters) => {
+    const response = await api.get('/data/plants', { params: filters });
+    return response.data;
+};

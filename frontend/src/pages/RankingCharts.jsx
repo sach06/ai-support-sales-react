@@ -5,7 +5,7 @@ const RankingCharts = ({ data }) => {
     if (!data || data.length === 0) return null;
 
     // 1. Score Distribution (Histogram)
-    const scores = data.map(d => Math.min(100, Math.max(0, d.score * 100)));
+    const scores = data.map(d => Math.min(100, Math.max(0, d.priority_score || 0)));
 
     // 2. Top Countries by Average Score (Bar Chart)
     const countryStats = useMemo(() => {
@@ -15,7 +15,7 @@ const RankingCharts = ({ data }) => {
                 acc[country] = { count: 0, totalScore: 0 };
             }
             acc[country].count += 1;
-            acc[country].totalScore += (row.score * 100);
+            acc[country].totalScore += (row.priority_score || 0);
             return acc;
         }, {});
 

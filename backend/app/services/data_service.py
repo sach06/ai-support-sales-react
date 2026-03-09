@@ -3,6 +3,7 @@ Data ingestion service for loading and merging Excel/CSV files
 """
 import hashlib
 import time
+import threading
 import pandas as pd
 import duckdb
 from pathlib import Path
@@ -50,12 +51,27 @@ class DataIngestionService:
         self.conn = None
         self.logs = []
         self._schema_migrated = False  # track one-time schema migration
+        self._lock = threading.Lock()  # DuckDB connections are NOT thread-safe
         
     def add_log(self, message: str):
         """Add a log message for the UI"""
         self.logs.append(message)
         print(message)
-        
+
+    def execute(self, query, params=None):
+        """Thread-safe DuckDB execute"""
+        with self._lock:
+            if params:
+                return self.conn.execute(query, params)
+            return self.conn.execute(query)
+
+    def execute_df(self, query, params=None):
+        """Thread-safe DuckDB execute returning a DataFrame"""
+        with self._lock:
+            if params:
+                return self.conn.execute(query, params).df()
+            return self.conn.execute(query).df()
+
     def get_conn(self):
         """Helper to get connection, initializing if needed"""
         if not self.conn:
@@ -374,7 +390,8 @@ class DataIngestionService:
                     'latitude': 'latitude_internal',
                     'longitude': 'longitude_internal',
                     'start_year': 'start_year_internal',
-                    'capacity': 'capacity_internal'
+                    'capacity': 'capacity_internal',
+                    'Status of the Plant': 'status_internal'
                 }
                 
                 for old_col, new_col in internal_mapping.items():
@@ -495,7 +512,7 @@ class DataIngestionService:
         # Check if crm_data table exists
         has_crm = False
         try:
-            tables = self.conn.execute("SHOW TABLES").df()['name'].tolist()
+            tables = self.execute_df("SHOW TABLES")['name'].tolist()
             has_crm = 'crm_data' in tables
         except:
             pass
@@ -507,6 +524,7 @@ class DataIngestionService:
                     c.company_ceo as CEO,
                     c.fte_count as "Number of Full time employees",
                     m.crm_name,
+                    m.match_score as "Matching Quality %",
                     COALESCE(CAST(m.crm_name AS VARCHAR), CAST(b.company_internal AS VARCHAR)) as name
                 FROM bcg_installed_base b
                 LEFT JOIN company_mappings m ON b.company_internal = m.bcg_name
@@ -521,7 +539,8 @@ class DataIngestionService:
                     b.*,
                     CAST(NULL AS VARCHAR) as CEO,
                     CAST(NULL AS DOUBLE) as "Number of Full time employees",
-                    CAST(NULL AS VARCHAR) as crm_name
+                    CAST(NULL AS VARCHAR) as crm_name,
+                    m.match_score as "Matching Quality %"
                 FROM bcg_installed_base b
                 LEFT JOIN company_mappings m ON b.company_internal = m.bcg_name
                 WHERE 1=1
@@ -540,7 +559,7 @@ class DataIngestionService:
             params.append(company_name)
             
         try:
-            df = self.conn.execute(query, params).df()
+            df = self.execute_df(query, params)
             self.add_log(f"Query returned {len(df)} initial records.")
             
             # Apply Region filter in Pandas to handle mapping logic
@@ -575,9 +594,9 @@ class DataIngestionService:
         if not conn:
             return []
         try:
-            result = conn.execute(
+            result = self.execute_df(
                 "SELECT DISTINCT country_internal FROM bcg_installed_base WHERE country_internal IS NOT NULL ORDER BY 1"
-            ).df()['country_internal'].tolist()
+            )['country_internal'].tolist()
             _cache_set('all_countries', result)
             return result
         except:
@@ -939,10 +958,10 @@ class DataIngestionService:
             return cached
         
         try:
-            tables = conn.execute("SHOW TABLES").df()['name'].tolist()
+            tables = self.execute_df("SHOW TABLES")['name'].tolist()
             if 'unified_companies' not in tables:
                 if 'crm_data' in tables:
-                    return conn.execute("SELECT * FROM crm_data LIMIT 1000").df()
+                    return self.execute_df("SELECT * FROM crm_data LIMIT 1000")
                 return pd.DataFrame()
             
             # Start building query
@@ -982,7 +1001,7 @@ class DataIngestionService:
 
             query += " ORDER BY equip_count DESC NULLS LAST"
             
-            result = conn.execute(query, params).df()
+            result = self.execute_df(query, params)
             
             # Safety check for 'name' column
             if not result.empty and 'name' not in result.columns:
@@ -1069,34 +1088,36 @@ class DataIngestionService:
         """Get detailed customer information by ID or Name from unified datasets"""
         if not self.conn:
             self.initialize_database()
-        
+
         customer_data = {}
-        
+
         try:
-            unified = self.conn.execute(
-                f"SELECT * FROM unified_companies WHERE name = ?", (customer_id,)
-            ).df()
+            unified = self.execute_df(
+                "SELECT * FROM unified_companies WHERE name = ?", [customer_id]
+            )
             if not unified.empty:
-                customer_data['crm'] = unified.to_dict('records')[0]
-        except:
-            pass
-            
+                import json
+                records = json.loads(json.dumps(unified.to_dict('records'), default=str))
+                customer_data['crm'] = records[0]
+        except Exception as e:
+            self.add_log(f"get_customer_detail crm error: {e}")
+
         try:
             params = [customer_id, customer_id]
-            eq_query = f"""
-                SELECT * FROM bcg_installed_base 
-                WHERE (company_internal = ? 
+            eq_query = """
+                SELECT * FROM bcg_installed_base
+                WHERE (company_internal = ?
                 OR company_internal IN (SELECT bcg_name FROM company_mappings WHERE crm_name = ?))
             """
-            
             if equipment_type != "All":
                 internal_name = self.EQUIPMENT_MAP.get(equipment_type, equipment_type)
                 eq_query += " AND equipment_type = ?"
                 params.append(internal_name)
-                
-            installed = self.conn.execute(eq_query, params).df()
+
+            installed = self.execute_df(eq_query, params)
             if not installed.empty:
-                records = installed.to_dict('records')
+                import json
+                records = json.loads(json.dumps(installed.to_dict('records'), default=str))
                 for rec in records:
                     if 'equipment_type' in rec and 'equipment' not in rec:
                         rec['equipment'] = rec['equipment_type']
@@ -1105,13 +1126,94 @@ class DataIngestionService:
                 customer_data['installed_base'] = records
             else:
                 customer_data['installed_base'] = []
-        except:
+        except Exception as e:
+            self.add_log(f"get_customer_detail installed_base error: {e}")
             customer_data['installed_base'] = []
-            
+
         return customer_data
 
 
     
+    def get_stats(self, region: str = "All", country: str = "All", equipment_type: str = "All") -> Dict:
+        """Return summary statistics for the statistics panel:
+        distributions of capacity, equipment age, start year, operational status."""
+        import json
+        if not self.conn:
+            self.initialize_database()
+        try:
+            query = """
+                SELECT
+                    CAST(status_internal AS VARCHAR)  as status,
+                    CAST(capacity_internal AS DOUBLE)  as capacity,
+                    CAST(start_year_internal AS INTEGER) as start_year,
+                    CAST(? - start_year_internal AS INTEGER) as age,
+                    CAST(equipment_type AS VARCHAR)    as equipment_type,
+                    CAST(country_internal AS VARCHAR)  as country,
+                    CAST(region AS VARCHAR)            as region
+                FROM bcg_installed_base
+                WHERE start_year_internal IS NOT NULL
+                  AND start_year_internal > 1900
+                  AND start_year_internal <= ?
+            """
+            current_year = pd.Timestamp.now().year
+            params: list = [current_year, current_year]
+
+            if region != "All" and region in self.REGION_MAPPING:
+                region_vals = [r.lower() for r in self.REGION_MAPPING[region]]
+                placeholders = ", ".join(["?"] * len(region_vals))
+                query += f" AND LOWER(region) IN ({placeholders})"
+                params.extend(region_vals)
+            if country != "All":
+                query += " AND country_internal = ?"
+                params.append(country)
+            if equipment_type != "All":
+                internal = self.EQUIPMENT_MAP.get(equipment_type, equipment_type)
+                query += " AND equipment_type = ?"
+                params.append(internal)
+
+            df = self.execute_df(query, params)
+            if df.empty:
+                return {"records": [], "summary": {}}
+
+            records = json.loads(json.dumps(df.to_dict(orient="records"), default=str))
+
+            # Summary statistics
+            cap = df["capacity"].dropna()
+            age = df["age"].dropna()
+            yr  = df["start_year"].dropna()
+            status_counts = df["status"].fillna("Unknown").value_counts().to_dict()
+            equip_counts  = df["equipment_type"].fillna("Unknown").value_counts().head(15).to_dict()
+
+            def _desc(s):
+                if s.empty:
+                    return {}
+                return {
+                    "min":    round(float(s.min()),  1),
+                    "max":    round(float(s.max()),  1),
+                    "mean":   round(float(s.mean()), 1),
+                    "median": round(float(s.median()), 1),
+                    "std":    round(float(s.std()),  1),
+                    "q1":     round(float(s.quantile(0.25)), 1),
+                    "q3":     round(float(s.quantile(0.75)), 1),
+                    "values": [round(float(v), 1) for v in s.tolist()],
+                }
+
+            return {
+                "records": records,
+                "summary": {
+                    "total": len(df),
+                    "status_counts": status_counts,
+                    "equipment_counts": equip_counts,
+                    "capacity": _desc(cap),
+                    "age": _desc(age),
+                    "start_year": _desc(yr),
+                },
+            }
+        except Exception as e:
+            self.add_log(f"get_stats error: {e}")
+            import traceback; self.add_log(traceback.format_exc())
+            return {"records": [], "summary": {}}
+
     def close(self):
         """Close database connection"""
         if self.conn:

@@ -7,26 +7,43 @@ const GeoMap = ({ data }) => {
     }
 
     // Filter plants that have valid lat/lon
-    const mapData = data.filter(p => p.latitude && p.longitude);
+    const mapData = data.filter(p => (p.latitude || p.map_latitude) && (p.longitude || p.map_longitude));
 
     if (mapData.length === 0) {
         return <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>No coordinates available for the selected plants.</div>;
     }
 
-    const hoverText = mapData.map(p =>
-        `${p.company_name}<br>` +
-        `Site: ${p.site_name || 'N/A'}<br>` +
-        `Equipment: ${p.equipment_type || 'N/A'}<br>` +
-        `Quality: ${p.match_type || 'N/A'}`
-    );
+    const hoverText = mapData.map(p => {
+        const capacity = p.capacity || p.capacity_internal || p['Nominal Capacity'] || 'N/A';
+        const site = p.City || p.site_name || 'N/A';
+        const equip = p.equipment_list ? p.equipment_list.join(', ') : (p.equipment_type || 'N/A');
 
-    // Map colors to match python app
+        return `<b>${p.name || p.company_name || 'Unknown Company'}</b><br>` +
+            `Equipment: ${equip}<br>` +
+            `Site: ${site}<br>` +
+            `Capacity: ${capacity}`;
+    });
+
+    // Map colors based on operational status
     const colors = mapData.map(p => {
-        const type = p.match_type;
-        if (type === 'Excellent') return '#007020';
-        if (type === 'Good') return '#38a169';
-        if (type === 'Okay') return '#d69e2e';
-        return '#e53e3e';
+        const status = String(p.status_internal || p['Status of the Plant'] || '').toLowerCase();
+
+        // Operational: Green
+        if (status.includes('operating') || status.includes('operational') || status.includes('active') || status.includes('running')) {
+            return '#2f855a'; // Deep green
+        }
+
+        // Projects/Future: Orange
+        if (status.includes('project') || status.includes('construction') || status.includes('planned') || status.includes('upcoming')) {
+            return '#dd6b20'; // Warm orange
+        }
+
+        // Off/Shut down: Red
+        if (status.includes('shut down') || status.includes('idle') || status.includes('abandoned') || status.includes('inactive')) {
+            return '#c53030'; // Balanced red
+        }
+
+        return '#718096'; // Gray fallback
     });
 
     return (
@@ -34,8 +51,8 @@ const GeoMap = ({ data }) => {
             data={[
                 {
                     type: 'scattermapbox',
-                    lat: mapData.map(p => p.latitude),
-                    lon: mapData.map(p => p.longitude),
+                    lat: mapData.map(p => p.map_latitude || p.latitude),
+                    lon: mapData.map(p => p.map_longitude || p.longitude),
                     mode: 'markers',
                     marker: {
                         size: 9,
@@ -52,8 +69,8 @@ const GeoMap = ({ data }) => {
                 mapbox: {
                     style: 'carto-positron',
                     center: {
-                        lat: mapData.length > 0 ? mapData.reduce((sum, p) => sum + parseFloat(p.latitude), 0) / mapData.length : 48,
-                        lon: mapData.length > 0 ? mapData.reduce((sum, p) => sum + parseFloat(p.longitude), 0) / mapData.length : 10
+                        lat: mapData.length > 0 ? mapData.reduce((sum, p) => sum + parseFloat(p.map_latitude || p.latitude), 0) / mapData.length : 48,
+                        lon: mapData.length > 0 ? mapData.reduce((sum, p) => sum + parseFloat(p.map_longitude || p.longitude), 0) / mapData.length : 10
                     },
                     zoom: 2
                 },

@@ -12,9 +12,9 @@ const RankingTable = ({ data, onRowSelect, selectedId }) => {
         },
         {
             header: 'Score',
-            accessorKey: 'score',
+            accessorKey: 'priority_score',
             cell: info => {
-                const s = info.getValue() * 100;
+                const s = typeof info.getValue() === 'number' ? info.getValue() : 0;
                 let color = 'inherit';
                 if (s > 75) color = 'var(--excellent)';
                 else if (s > 50) color = 'var(--good)';
@@ -23,7 +23,7 @@ const RankingTable = ({ data, onRowSelect, selectedId }) => {
         },
         {
             header: 'Company Name',
-            accessorKey: 'company_name',
+            accessorKey: 'company',
             cell: info => <div style={{ fontWeight: '600' }}>{info.getValue()}</div>
         },
         {
@@ -35,9 +35,16 @@ const RankingTable = ({ data, onRowSelect, selectedId }) => {
             accessorKey: 'equipment_type'
         },
         {
-            header: 'Opportunity Type',
+            header: 'Opportunity Type & Details',
             accessorKey: 'opportunity_type',
-            cell: info => <OpportunityBadge type={info.getValue()} />
+            cell: info => (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <OpportunityBadge type={info.getValue()} />
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', maxWidth: '250px', lineHeight: '1.2' }}>
+                        {info.row.original.opportunity_description}
+                    </div>
+                </div>
+            )
         }
     ], []);
 

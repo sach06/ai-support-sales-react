@@ -181,3 +181,73 @@
     padding: 2rem;
     flex: 1;
 }
+
+/* ── Loading Progress Bar ────────────────────────────────────────────── */
+.load-progress-container {
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: rgba(33, 150, 243, 0.06);
+    border: 1px solid rgba(33, 150, 243, 0.15);
+    border-radius: 6px;
+}
+
+.load-progress-step {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.load-progress-bar-track {
+    width: 100%;
+    height: 8px;
+    background: var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 0.35rem;
+}
+
+.load-progress-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.5s ease;
+    background: linear-gradient(90deg, #1976d2, #42a5f5, #1976d2);
+    background-size: 200% 100%;
+    animation: progress-shimmer 1.5s ease-in-out infinite;
+}
+
+.load-progress-bar-fill.complete {
+    background: #4caf50;
+    animation: none;
+}
+
+.load-progress-bar-fill.error {
+    background: #f44336;
+    animation: none;
+}
+
+@keyframes progress-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+.load-progress-percent {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-align: right;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.load-progress-error {
+    font-size: 0.78rem;
+    color: #f44336;
+    margin-top: 0.4rem;
+    padding: 0.4rem;
+    background: rgba(244, 67, 54, 0.08);
+    border-radius: 4px;
+    word-break: break-word;
+}

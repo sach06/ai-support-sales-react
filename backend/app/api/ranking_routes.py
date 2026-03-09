@@ -32,6 +32,18 @@ def get_ranked_list(
             
         # Convert to records
         records = df.to_dict(orient="records")
+        for rec in records:
+            age = rec.get("equipment_age", 0)
+            if age >= 30:
+                rec["opportunity_type"] = "OEM Replacement"
+                rec["opportunity_description"] = f"Equipment is {age:.1f} years old. High probability of full replacement."
+            elif age >= 15:
+                rec["opportunity_type"] = "Revamping / Upgrade"
+                rec["opportunity_description"] = f"Equipment is {age:.1f} years old. Prime candidate for modernization."
+            else:
+                rec["opportunity_type"] = "Service Contract"
+                rec["opportunity_description"] = f"Modern equipment ({age:.1f} yrs). Focus on predictive maintenance and spares."
+                
         return {"rankings": records}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

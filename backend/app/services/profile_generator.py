@@ -283,7 +283,8 @@ Generate a JSON object with the following structure (include ALL sections):
         "priority_score": "AI priority/ranking score (0-100) based on provided ranking data",
         "priority_rank": "Rank among all customers in the dataset",
         "key_opportunity_drivers": "Top 3 factors driving priority ranking (e.g. equipment age, win rate, market signal)",
-        "engagement_recommendation": "Short recommendation on urgency and engagement strategy"
+        "engagement_recommendation": "Short recommendation on urgency and engagement strategy",
+        "company_explainer": "A detailed 5-paragraph deep research explanation justifying this rank and score. Paragraph 1: Overview of company position. Paragraph 2: Technical equipment analysis. Paragraph 3: Historical relationship and CRM signal. Paragraph 4: Market opportunity and growth. Paragraph 5: Final strategic verdict on why they earn this specific rank."
     }},
     "country_intelligence": {{
         "steel_market_summary": "Summary of the steel market situation in the customer's country",
@@ -303,7 +304,8 @@ CRITICAL INSTRUCTIONS:
 5. For 'priority_analysis', base the score and drivers on the provided PRIORITY RANKING data if available.
 6. For 'country_intelligence', base the analysis on the provided COUNTRY INTELLIGENCE data headlines and your knowledge.
 7. If information is absolutely not available, use "Not available" for strings or null for numbers.
-8. Be concise, highly technical, and strategic."""
+8. Be concise in the basic fields, but PROVIDE A DETAILED 5-PARAGRAPH DEEP RESEARCH EXPLANATION in the 'priority_analysis.company_explainer' field.
+9. Be highly technical, strategic, and professional."""
     
     def _generate_fallback_profile(self, customer_data: Dict) -> Dict:
         """Generate a basic profile without AI when API is not available"""

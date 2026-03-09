@@ -24,12 +24,12 @@ logger = logging.getLogger(__name__)
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 _ROOT = Path(__file__).resolve().parent.parent.parent
-_IB_PATH  = _ROOT / "temp_repos" / "work_apps" / "templates" / "ib_list.xlsx"
-_CRM_PATH = _ROOT / "temp_repos" / "work_apps" / "templates" / "gh_current_projects.xlsx"
+_IB_PATH  = _ROOT / "data" / "bcg_data.xlsx"
+_CRM_PATH = _ROOT / "data" / "crm_export.xlsx"
 
 # Source references shown in the UI
-IB_SOURCE_LINK  = "Source: Axel's IB List (ib_list.xlsx)"
-CRM_SOURCE_LINK = "Source: Axel's CRM Export (gh_current_projects.xlsx)"
+IB_SOURCE_LINK  = "Source: BCG Market Data (bcg_data.xlsx)"
+CRM_SOURCE_LINK = "Source: SMS CRM Export (crm_export.xlsx)"
 
 
 # ── Raw loaders (cached for the app lifetime) ─────────────────────────────────
@@ -40,10 +40,19 @@ def _load_ib() -> pd.DataFrame:
         logger.warning("IB file not found: %s", _IB_PATH)
         return pd.DataFrame()
     try:
-        df = pd.read_excel(_IB_PATH)
-        # Drop unnamed / datetime columns
-        df = df[[c for c in df.columns if isinstance(c, str) and not c.startswith("Unnamed") and not c.startswith("last")]]
-        return df
+        # Load first sheet or all sheets? BCG data has many sheets. 
+        # For simplicity, we'll try to find the 'Company' column in any sheet.
+        xl = pd.ExcelFile(_IB_PATH)
+        all_dfs = []
+        for sheet in xl.sheet_names:
+            tmp = pd.read_excel(xl, sheet_name=sheet)
+            if 'Company' in tmp.columns:
+                tmp['sheet_source'] = sheet
+                all_dfs.append(tmp)
+        
+        if not all_dfs:
+            return pd.read_excel(_IB_PATH) # Fallback to first
+        return pd.concat(all_dfs, ignore_index=True)
     except Exception as e:
         logger.error("Failed to load IB file: %s", e)
         return pd.DataFrame()
@@ -92,8 +101,8 @@ def _match_company(df: pd.DataFrame, col: str, company: str, threshold: int = 60
 def get_ib_for_company(company: str) -> pd.DataFrame:
     """Return installed-base rows for the given company."""
     df = _load_ib()
-    # Try 'ib_customer' column first
-    for col in ["ib_customer", "account_name", "company", "customer"]:
+    # Try actual columns in BCG data
+    for col in ["Company", "Parent Company", "ib_customer", "account_name", "customer"]:
         matched = _match_company(df, col, company)
         if not matched.empty:
             return matched.reset_index(drop=True)
@@ -103,7 +112,7 @@ def get_ib_for_company(company: str) -> pd.DataFrame:
 def get_crm_projects_for_company(company: str) -> pd.DataFrame:
     """Return CRM project rows for the given company."""
     df = _load_crm()
-    for col in ["account_name", "company", "customer_project", "ib_customer"]:
+    for col in ["Customer", "account_name", "company", "customer_project", "ib_customer"]:
         matched = _match_company(df, col, company)
         if not matched.empty:
             return matched.reset_index(drop=True)
@@ -129,7 +138,7 @@ def get_yearly_performance(company: str) -> dict:
     df = projects.copy()
 
     # Parse year from date columns
-    date_col = next((c for c in ["cp_close_date", "sp_oi_date", "CP_created_on", "date_of_inquiry"]
+    date_col = next((c for c in ["Date Start-up", "Date of Verification", "cp_close_date", "sp_oi_date", "CP_created_on", "date_of_inquiry"]
                      if c in df.columns), None)
     if date_col:
         df["_year"] = pd.to_datetime(df[date_col], errors="coerce").dt.year
@@ -137,7 +146,7 @@ def get_yearly_performance(company: str) -> dict:
         df["_year"] = pd.NaT
 
     # Value column
-    val_col = next((c for c in ["cp_expected_value_eur", "sp_expected_value_eur", "CP_value_local_currency"]
+    val_col = next((c for c in ["Nominat Capacity [t/y]", "Nominal Capacity", "cp_expected_value_eur", "sp_expected_value_eur", "CP_value_local_currency"]
                     if c in df.columns), None)
     if val_col:
         df["_value"] = pd.to_numeric(df[val_col], errors="coerce").fillna(0)
@@ -145,14 +154,14 @@ def get_yearly_performance(company: str) -> dict:
         df["_value"] = 0
 
     # Status / won detection
-    status_col = next((c for c in ["cp_status_hot", "sp_custom_status", "cp_custom_status", "sales_phase"]
+    status_col = next((c for c in ["Status of Plant/Equipment", "Status of the Plant", "cp_status_hot", "sp_custom_status", "cp_custom_status", "sales_phase"]
                        if c in df.columns), None)
     if status_col:
         df["_status"] = df[status_col].astype(str)
     else:
         df["_status"] = "Unknown"
 
-    won_keywords = ["won", "booked", "converted", "order", "placed"]
+    won_keywords = ["won", "booked", "converted", "order", "placed", "operational", "operating"]
     df["_is_won"] = df["_status"].str.lower().apply(
         lambda s: any(k in s for k in won_keywords)
     )
@@ -207,7 +216,7 @@ def get_ib_summary(company: str) -> dict:
     CURRENT_YEAR = 2026
 
     # Startup year
-    year_col = next((c for c in ["ib_startup", "start_year", "installation_year"] if c in df.columns), None)
+    year_col = next((c for c in ["Year of Start Up", "Date Start-up", "ib_startup", "start_year", "installation_year"] if c in df.columns), None)
     if year_col:
         df["_year"] = pd.to_numeric(df[year_col], errors="coerce")
         df["_age"] = df["_year"].apply(lambda y: max(0, CURRENT_YEAR - int(y)) if pd.notna(y) else np.nan)
@@ -215,10 +224,10 @@ def get_ib_summary(company: str) -> dict:
         df["_age"] = np.nan
 
     # OEM/product columns
-    prod_col  = next((c for c in ["ib_machine", "ib_product", "ib_description", "equipment"] if c in df.columns), None)
-    ctry_col  = next((c for c in ["ib_customer_country", "ib_country", "country"] if c in df.columns), None)
-    city_col  = next((c for c in ["ib_city", "city"] if c in df.columns), None)
-    status_col = next((c for c in ["ib_status", "status"] if c in df.columns), None)
+    prod_col  = next((c for c in ["Type of Plant", "Installed Base", "ib_machine", "ib_product", "ib_description", "equipment"] if c in df.columns), None)
+    ctry_col  = next((c for c in ["Country", "Country (Territory)", "ib_customer_country", "ib_country", "country"] if c in df.columns), None)
+    city_col  = next((c for c in ["City", "Technical Location", "ib_city", "city"] if c in df.columns), None)
+    status_col = next((c for c in ["Status of the Plant", "Status of Plant/Equipment", "ib_status", "status"] if c in df.columns), None)
 
     n_units = len(df)
     avg_age = float(df["_age"].mean()) if "_age" in df.columns and df["_age"].notna().any() else 0.0

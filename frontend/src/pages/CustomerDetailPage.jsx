@@ -9,7 +9,8 @@ import InventoryTable from './InventoryTable';
 import './Customer.css';
 
 const CustomerDetailPage = () => {
-    const { companyName } = useFilterStore();
+    const filters = useFilterStore();
+    const { companyName } = filters;
 
     const [profileData, setProfileData] = useState(null);
     const [isGenerating, setIsGenerating] = useState(false);
@@ -18,8 +19,8 @@ const CustomerDetailPage = () => {
 
     // Fetch initial basic data from CRM/BCG
     const { data: rawCustomerData, isLoading: isLoadingRaw, isError: isErrorRaw } = useQuery({
-        queryKey: ['raw_customer', companyName],
-        queryFn: () => getCustomerProfile(companyName),
+        queryKey: ['raw_customer', companyName, filters.country, filters.region, filters.equipmentType],
+        queryFn: () => getCustomerProfile(companyName, filters),
         enabled: companyName !== 'All',
     });
 
