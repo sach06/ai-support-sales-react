@@ -7,7 +7,7 @@ export const exportDocx = async (profile, customerName) => {
     );
 
     // Create download link
-    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
     const link = document.createElement('a');
     link.href = url;
 
@@ -34,7 +34,7 @@ export const exportPdf = async (profile, customerName) => {
     );
 
     // Create download link
-    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
     const link = document.createElement('a');
     link.href = url;
 

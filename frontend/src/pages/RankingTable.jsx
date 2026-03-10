@@ -2,7 +2,12 @@ import React from 'react';
 import { useReactTable, getCoreRowModel, flexRender, getSortedRowModel, getPaginationRowModel } from '@tanstack/react-table';
 import OpportunityBadge from './OpportunityBadge';
 
-const RankingTable = ({ data, onRowSelect, selectedId }) => {
+const RankingTable = ({ data, onRowSelect, selectedId, pinnedCompany }) => {
+    // Normalise pinned company for case-insensitive comparison
+    const pinnedNorm = pinnedCompany && pinnedCompany !== 'All'
+        ? pinnedCompany.trim().toLowerCase()
+        : null;
+
     const columns = React.useMemo(() => [
         {
             header: 'Rank',
@@ -24,7 +29,22 @@ const RankingTable = ({ data, onRowSelect, selectedId }) => {
         {
             header: 'Company Name',
             accessorKey: 'company',
-            cell: info => <div style={{ fontWeight: '600' }}>{info.getValue()}</div>
+            cell: info => {
+                const name = info.getValue();
+                const isPinned = pinnedNorm && name && name.trim().toLowerCase() === pinnedNorm;
+                return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600' }}>
+                        {isPinned && (
+                            <span title="Selected in Global Filters" style={{
+                                fontSize: '0.65rem', fontWeight: '700', letterSpacing: '0.04em',
+                                background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#fff',
+                                borderRadius: '4px', padding: '1px 5px', whiteSpace: 'nowrap'
+                            }}>⭐ YOUR PICK</span>
+                        )}
+                        {name}
+                    </div>
+                );
+            }
         },
         {
             header: 'Country',
@@ -46,7 +66,8 @@ const RankingTable = ({ data, onRowSelect, selectedId }) => {
                 </div>
             )
         }
-    ], []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    ], [pinnedNorm]);
 
     const table = useReactTable({
         data,
@@ -63,6 +84,11 @@ const RankingTable = ({ data, onRowSelect, selectedId }) => {
 
     return (
         <div className="ranking-table-container">
+            {pinnedNorm && (
+                <div className="pinned-company-notice">
+                    ⭐ Highlighting <strong>{pinnedCompany}</strong> — your selected company from Global Filters
+                </div>
+            )}
             <div className="table-scroll-wrapper">
                 <table className="data-table ranking-table">
                     <thead>
@@ -83,11 +109,13 @@ const RankingTable = ({ data, onRowSelect, selectedId }) => {
                     </thead>
                     <tbody>
                         {table.getRowModel().rows.map(row => {
-                            const isSelected = selectedId === row.original.id; // requires an id or use id from array
+                            const isSelected = selectedId === row.original.company;
+                            const isPinned = pinnedNorm && row.original.company &&
+                                row.original.company.trim().toLowerCase() === pinnedNorm;
                             return (
                                 <tr
                                     key={row.id}
-                                    className={`clickable-row ${isSelected ? 'row-selected' : ''}`}
+                                    className={`clickable-row ${isSelected ? 'row-selected' : ''} ${isPinned ? 'row-pinned' : ''}`}
                                     onClick={() => onRowSelect(row.original)}
                                 >
                                     {row.getVisibleCells().map(cell => (
@@ -112,3 +140,4 @@ const RankingTable = ({ data, onRowSelect, selectedId }) => {
 };
 
 export default RankingTable;
+

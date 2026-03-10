@@ -10,7 +10,7 @@ import RankingCharts from './RankingCharts';
 import './Ranking.css';
 
 const RankingPage = () => {
-    const { country, equipmentType } = useFilterStore();
+    const { country, equipmentType, companyName } = useFilterStore();
     const { dataLoaded } = useDataStore();
 
     const [selectedCompany, setSelectedCompany] = useState(null);
@@ -82,7 +82,8 @@ const RankingPage = () => {
                         <RankingTable
                             data={rankings || []}
                             onRowSelect={setSelectedCompany}
-                            selectedId={selectedCompany?.company} // using name as id since db id not guaranteed 
+                            selectedId={selectedCompany?.company}
+                            pinnedCompany={companyName}
                         />
                     )}
                 </div>

@@ -296,7 +296,8 @@ def get_stats(
             country=country,
             equipment_type=equipment_type,
         )
-        return result
+        # Sanitize: numpy.int64 keys from value_counts().to_dict() break FastAPI JSON encoder
+        return json_safe_sanitize(result)
     except Exception as e:
         print(f"ERROR in /stats: {traceback.format_exc()}")
         # Return empty stats instead of 500 error
