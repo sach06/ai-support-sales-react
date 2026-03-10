@@ -3,7 +3,7 @@ import { useLocation, Link, Outlet } from 'react-router-dom';
 import { useFilterStore } from '../../store/useFilterStore';
 import { useDataStore } from '../../store/useDataStore';
 import { useQuery } from '@tanstack/react-query';
-import { getCountries, getRegions, getEquipmentTypes, getCustomers, loadData, getLoadProgress } from '../../api/dataApi';
+import { getCountries, getRegions, getEquipmentTypes, getCustomers, getCompanyNames, loadData, getLoadProgress } from '../../api/dataApi';
 import api from '../../api/client';
 import './Layout.css';
 
@@ -33,6 +33,13 @@ const Layout = () => {
     const { data: countriesList = ['All'] } = useQuery({ queryKey: ['countries'], queryFn: getCountries, enabled: dataLoaded });
     const { data: equipmentList = ['All'] } = useQuery({ queryKey: ['equipments'], queryFn: getEquipmentTypes, enabled: dataLoaded });
 
+    // Company Names Query - filtered by current region/country/equipment
+    const { data: companyNamesList = ['All'] } = useQuery({
+        queryKey: ['company_names', { region, country, equipmentType }],
+        queryFn: () => getCompanyNames({ region, country, equipment_type: equipmentType }),
+        enabled: dataLoaded
+    });
+
     // Dynamic Company Query - dependant on the state of the parent filters
     const { data: filteredCustomersData } = useQuery({
         queryKey: ['filtered_customers', { region, country, equipmentType }],
@@ -40,8 +47,8 @@ const Layout = () => {
         enabled: dataLoaded
     });
 
-    const activeCompanies = filteredCustomersData?.customers && filteredCustomersData.customers.length > 0
-        ? ['All', ...[...new Set(filteredCustomersData.customers.map(c => c.name))].sort()]
+    const activeCompanies = companyNamesList && companyNamesList.length > 0
+        ? ['All', ...companyNamesList]
         : ['All'];
 
     // If an invalid combination occurs, automatically select 'All' for Company Name

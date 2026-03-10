@@ -189,6 +189,28 @@ def get_countries():
     return {"countries": data_service.get_all_countries()}
 
 
+# ── /api/data/company-names ───────────────────────────────────────────────────
+
+@router.get("/company-names")
+def get_company_names(
+    region: Optional[str] = Query(default="All"),
+    country: Optional[str] = Query(default="All"),
+    equipment_type: Optional[str] = Query(default="All"),
+):
+    """List all available company names, optionally filtered by region/country/equipment."""
+    import traceback
+    try:
+        companies = data_service.get_all_company_names(
+            region=region,
+            country=country,
+            equipment_type=equipment_type,
+        )
+        return {"company_names": companies}
+    except Exception as e:
+        print(f"ERROR in /company-names: {traceback.format_exc()}")
+        return {"company_names": []}
+
+
 # ── /api/data/regions ─────────────────────────────────────────────────────────
 
 @router.get("/regions")
@@ -216,6 +238,7 @@ def get_customers(
     company_name: Optional[str] = Query(default="All"),
 ):
     """Return filtered customer list from unified_companies view."""
+    import traceback
     try:
         df = data_service.get_customer_list(
             equipment_type=equipment_type,
@@ -228,6 +251,7 @@ def get_customers(
         clean = df_to_json_safe(df)
         return {"customers": clean, "total": len(clean)}
     except Exception as e:
+        print(f"ERROR in /customers: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -265,11 +289,28 @@ def get_stats(
     equipment_type: Optional[str] = Query(default="All"),
 ):
     """Return summary statistics (distributions) for the Statistics panel."""
-    return data_service.get_stats(
-        region=region,
-        country=country,
-        equipment_type=equipment_type,
-    )
+    import traceback
+    try:
+        result = data_service.get_stats(
+            region=region,
+            country=country,
+            equipment_type=equipment_type,
+        )
+        return result
+    except Exception as e:
+        print(f"ERROR in /stats: {traceback.format_exc()}")
+        # Return empty stats instead of 500 error
+        return {
+            "records": [],
+            "summary": {
+                "total": 0,
+                "status_counts": {},
+                "equipment_counts": {},
+                "capacity": {},
+                "age": {},
+                "start_year": {}
+            }
+        }
 
 
 # ── /api/data/logs ────────────────────────────────────────────────────────────

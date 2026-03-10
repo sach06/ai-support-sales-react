@@ -481,14 +481,6 @@ class DataIngestionService:
         
         return combined_df
 
-    REGION_MAPPING = {
-        "Americas": ["North America", "South America", "Central America", "Latin America", "Americas"],
-        "APAC & MEA": ["APAC", "Asia", "Middle East", "Africa", "Oceania", "Australia", "India", "Southeast Asia", "MEA"],
-        "China": ["China"],
-        "Commonwealth": ["CIS", "Commonwealth", "Russia"],
-        "Europe": ["Europe", "EU", "Western Europe", "Eastern Europe", "Central Europe", "Nordics"]
-    }
-
     COUNTRY_TO_REGION_MAP = {
         "germany": "Europe", "france": "Europe", "italy": "Europe", "spain": "Europe", "united kingdom": "Europe",
         "uk": "Europe", "netherlands": "Europe", "belgium": "Europe", "switzerland": "Europe", "austria": "Europe",
@@ -600,6 +592,62 @@ class DataIngestionService:
             _cache_set('all_countries', result)
             return result
         except:
+            return []
+
+    def get_all_company_names(self, region: str = "All", country: str = "All", equipment_type: str = "All") -> List[str]:
+        """Get all company names from unified view, optionally filtered"""
+        cache_key = f"company_names|{region}|{country}|{equipment_type}"
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
+        
+        conn = self.get_conn()
+        if not conn:
+            return []
+        
+        try:
+            tables = self.execute_df("SHOW TABLES")['name'].tolist()
+            if 'unified_companies' not in tables:
+                if 'crm_data' not in tables:
+                    return []
+                table_name = 'crm_data'
+            else:
+                table_name = 'unified_companies'
+            
+            query = f"SELECT DISTINCT name FROM {table_name} WHERE name IS NOT NULL AND name != ''"
+            params = []
+            
+            # Filter by region
+            if region != "All" and region in self.REGION_MAPPING:
+                region_values = [r.lower() for r in self.REGION_MAPPING[region]]
+                filter_str = " OR ".join(["LOWER(region) LIKE ?"] * len(region_values))
+                query += f" AND ({filter_str})"
+                for r in region_values:
+                    params.append(f"%{r}%")
+            
+            # Filter by country
+            if country != "All":
+                query += " AND (LOWER(country) = ? OR list_contains(bcg_locations, ?))"
+                params.append(country.lower())
+                params.append(country.title())
+            
+            # Filter by equipment (only if unified_companies exists with array columns)
+            if equipment_type != "All" and table_name == 'unified_companies':
+                internal_name = self.EQUIPMENT_MAP.get(equipment_type, equipment_type)
+                query += " AND list_contains(equipment_list, ?)"
+                params.append(internal_name)
+            
+            query += " ORDER BY name"
+            
+            if params:
+                result = self.execute_df(query, params)['name'].tolist()
+            else:
+                result = self.execute_df(query)['name'].tolist()
+            
+            _cache_set(cache_key, result)
+            return result
+        except Exception as e:
+            self.add_log(f"Error getting company names: {e}")
             return []
 
     def load_bcg_data(self, filename: str = "bcg_data.xlsx") -> pd.DataFrame:
@@ -1141,6 +1189,11 @@ class DataIngestionService:
         if not self.conn:
             self.initialize_database()
         try:
+            # Check if bcg_installed_base table exists
+            tables = self.execute_df("SHOW TABLES")['name'].tolist()
+            if 'bcg_installed_base' not in tables:
+                return {"records": [], "summary": {"total": 0}}
+            
             query = """
                 SELECT
                     CAST(status_internal AS VARCHAR)  as status,
@@ -1173,7 +1226,17 @@ class DataIngestionService:
 
             df = self.execute_df(query, params)
             if df.empty:
-                return {"records": [], "summary": {}}
+                return {
+                    "records": [],
+                    "summary": {
+                        "total": 0,
+                        "status_counts": {},
+                        "equipment_counts": {},
+                        "capacity": {},
+                        "age": {},
+                        "start_year": {}
+                    }
+                }
 
             records = json.loads(json.dumps(df.to_dict(orient="records"), default=str))
 

@@ -17,10 +17,10 @@ class Settings:
     DATA_DIR = BASE_DIR / "data"
 
     # Azure OpenAI settings
-    AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")
-    AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
-    AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
-    AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
+    AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "e3ff1ba6c1574444b95fb7cf81284968")
+    AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "https://as-01-app-sms-apim.azure-api.net/oai-oth")
+    AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1-mini")
+    AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview")
 
     # Alternative: Standard OpenAI
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")

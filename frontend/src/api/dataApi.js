@@ -15,6 +15,11 @@ export const getCountries = async () => {
     return response.data.countries;
 };
 
+export const getCompanyNames = async (filters = {}) => {
+    const response = await api.get('/data/company-names', { params: filters });
+    return response.data.company_names || [];
+};
+
 export const getRegions = async () => {
     const response = await api.get('/data/regions');
     return response.data.regions;
