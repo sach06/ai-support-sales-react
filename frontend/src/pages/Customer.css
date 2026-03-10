@@ -214,6 +214,15 @@
     color: var(--text-primary);
     margin: 0;
     font-weight: 500;
+    white-space: pre-wrap;
+    line-height: 1.5;
+}
+
+.history-section p,
+.strategy-section p,
+.financial-card p {
+    white-space: pre-wrap;
+    line-height: 1.5;
 }
 
 .full-width {

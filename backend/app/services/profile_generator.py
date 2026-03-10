@@ -194,118 +194,89 @@ class ProfileGeneratorService:
 
     def _create_profile_prompt(self, context: str) -> str:
         """Create the prompt for profile generation with expanded JSON schema."""
-        return f"""Based on ALL of the following customer data sources, generate a comprehensive customer intelligence dossier (Steckbrief) in JSON format.
+        return f"""You are an expert industrial strategy consultant, metallurgist, and financial analyst working for SMS group, a global engineering and plant construction company for the steel industry.
+Your task is to generate a highly detailed, 10 to 15 pages long, executive-level Customer Analysis Report based on the provided data sources.
+Maintain a formal, executive consulting tone comparable to BCG, McKinsey, or Goldman Sachs industry deep-dive reports.
 
+METHODOLOGY & CONSTRAINTS:
+1. Base your analysis on steel industry expertise, metallurgical process knowledge, market intelligence, and financial analysis.
+2. If exact data is unavailable, clearly state assumptions and use conservative industry benchmarks based on your expert knowledge.
+3. Do not hallucinate proprietary datasets; instead, infer logically and label as industry-based estimation.
+4. Always analyze from the perspective of SMS group's equipment portfolio, decarbonization strategy, and competitive positioning vs competitors (Danieli, Primetals, Fives).
+5. Output MUST be in the exact JSON schema provided below. Format long text areas with '\n\n' for paragraph breaks.
+
+DATA SOURCES:
 {context}
 
-Generate a JSON object with the following structure (include ALL sections):
+Generate a JSON object with the following structure. Pay extraordinary attention to the length and depth constraints for the text fields:
 {{
     "basic_data": {{
         "name": "Company name",
         "hq_address": "Headquarters address",
-        "latitude": "Latitude as float or null",
-        "longitude": "Longitude as float or null",
         "owner": "Owner/Parent company",
-        "management": "Key management personnel (CEO, CFO, etc.)",
-        "ceo": "Specific name of the CEO",
-        "fte": "Number of employees (total FTE)",
-        "financials": "Financial status/revenue (latest available)",
-        "buying_center": "Buying center information",
-        "company_focus": "Company focus, vision, strategy",
-        "embargos_esg": "Any embargos or ESG concerns",
-        "frame_agreements": "Existing frame agreements with SMS group",
-        "recent_facts": "Notable recent news, mergers, or strategic shifts from the last 1-2 years",
-        "ownership_history": "Brief ownership history with dates (e.g., Pre-2016: X, 2016-2019: Y, 2020-present: Z)"
+        "management": "Key management personnel",
+        "ceo": "CEO Name",
+        "fte": "Number of employees",
+        "financials": "High-level financial status",
+        "company_focus": "Company strategic positioning in steel (e.g., stainless steel, flat products)",
+        "ownership_history": "Brief ownership history"
     }},
     "locations": [
         {{
             "address": "Location address",
             "city": "City",
             "country": "Country",
-            "latitude": "Latitude as float or null",
-            "longitude": "Longitude as float or null",
+            "final_products": "Products manufactured",
+            "tons_per_year": "Production capacity",
             "installed_base": [
                 {{
                     "equipment_type": "Type of equipment",
-                    "manufacturer": "OEM/Manufacturer",
+                    "manufacturer": "OEM",
                     "year_of_startup": "Year",
                     "status": "Operational/Idle"
                 }}
-            ],
-            "final_products": "Products manufactured",
-            "tons_per_year": "Production capacity"
+            ]
         }}
     ],
+    "priority_analysis": {{
+        "priority_score": "Score (0-100)",
+        "priority_rank": "Rank",
+        "company_explainer": "PRIORITY RANKING ANALYSIS: Detailed 5-paragraph deep dive. Analyze operations, country footprint, site relevance, financial strength, and strategic fit for SMS group. Conclude what this ranking means for resource allocation.",
+        "key_opportunity_drivers": "KEY OPPORTUNITY DRIVERS (5-7 paragraphs): Elaborate on large installed base and modernization needs, alignment with green steel / SMS decarbonization portfolio, and historical relationship upselling potential.",
+        "engagement_recommendation": "ENGAGEMENT RECOMMENDATION (5-7 paragraphs): Elaborate on urgency, site prioritization (e.g. key meltshops or rolling mills), and specific pilot solutions to introduce."
+    }},
     "history": {{
-        "latest_projects": "Recent projects with SMS group",
-        "realized_projects": "Completed projects",
-        "crm_rating": "CRM rating",
-        "key_person": "Key contact person",
-        "sms_relationship": "Best SMS contact/relationship",
-        "latest_visits": "Recent visits",
-        "total_won_value_eur": "Total won value in EUR (from CRM history)",
-        "win_rate_pct": "Overall win rate %",
-        "n_projects": "Total number of projects tracked"
-    }},
-    "context": {{
-        "end_customer": "Who is the end customer",
-        "market_position": "Market position and trends"
-    }},
-    "financial_history": [
-        {{"year": 2015, "revenue_m_eur": 100, "ebitda_m_eur": 10}},
-        {{"year": 2024, "revenue_m_eur": 150, "ebitda_m_eur": 20}}
-    ],
-    "latest_balance_sheet": {{
-        "assets": "Brief summary",
-        "liabilities": "Brief summary",
-        "equity": "Brief summary"
-    }},
-    "metallurgical_insights": {{
-        "process_efficiency": "Analysis of current production efficiency based on technology age and type",
-        "modernization_potential": "Specific technical areas where SMS group solutions (HybrEx, X-Pact, Lifecycle Services) could add value",
-        "carbon_footprint_strategy": "Green steel initiatives or ESG targets relevant to SMS group's decarbonization portfolio",
-        "technical_bottlenecks": "Likely pain points based on equipment age and type"
-    }},
-    "sales_strategy": {{
-        "recommended_portfolio": "Specific SMS group products recommended for this customer",
-        "value_proposition": "Tailored sales pitch for this specific customer",
-        "competitive_landscape": "Competitors likely active at this site",
-        "suggested_next_steps": "Actionable advice for the sales manager"
+        "latest_projects": "PROJECT HISTORY & SALES RELATIONSHIP: Describe relationship maturity, trust level, realized/ongoing projects and what they indicate strategically. State if CRM data is unavailable and implications.",
+        "total_won_value_eur": "Total won value",
+        "win_rate_pct": "Win rate",
+        "sms_relationship": "Key SMS contact"
     }},
     "market_intelligence": {{
-        "financial_health": "Current financial stability, debt levels, cash flow, recent financial performance",
-        "recent_developments": "Recent announcements, projects, events (last 12-24 months)",
-        "market_position": "Market share, strategic advantages, industry positioning",
-        "strategic_outlook": "Future growth plans, potential investments, long-term strategy",
-        "risk_assessment": "Key business risks based on market trends and company stability"
-    }},
-    "priority_analysis": {{
-        "priority_score": "AI priority/ranking score (0-100) based on provided ranking data",
-        "priority_rank": "Rank among all customers in the dataset",
-        "key_opportunity_drivers": "Top 3 factors driving priority ranking (e.g. equipment age, win rate, market signal)",
-        "engagement_recommendation": "Short recommendation on urgency and engagement strategy",
-        "company_explainer": "A detailed 5-paragraph deep research explanation justifying this rank and score. Paragraph 1: Overview of company position. Paragraph 2: Technical equipment analysis. Paragraph 3: Historical relationship and CRM signal. Paragraph 4: Market opportunity and growth. Paragraph 5: Final strategic verdict on why they earn this specific rank."
+        "financial_health": "COMPANY FINANCIAL ANALYSIS (5-7 paragraphs): Chartered-accountant-level deep dive. Analyze revenue trends, EBITDA, margins, debt, capex. Interpret financial health in terms of investment capacity for modernization and green steel.",
+        "market_position": "MARKET CONTEXT: End-customer industries, demand drivers, and competitive positioning in the steel market."
     }},
     "country_intelligence": {{
-        "steel_market_summary": "Summary of the steel market situation in the customer's country",
-        "economic_context": "Relevant economic developments (GDP, industrial output, investment climate)",
-        "trade_tariff_context": "Relevant tariffs or trade measures affecting the customer's market",
-        "automotive_sector": "Automotive industry trends relevant to steel demand",
-        "investment_drivers": "Key factors likely to drive or delay capital investment decisions",
-        "sms_positioning": "How SMS group can best position itself given the country-level market dynamics"
+        "steel_market_summary": "COUNTRY-LEVEL INTELLIGENCE: Steel market structure of the operations country",
+        "economic_context": "Economic context",
+        "trade_tariff_context": "Trade & tariffs",
+        "automotive_sector": "Automotive demand",
+        "investment_drivers": "Investment drivers and risks"
+    }},
+    "metallurgical_insights": {{
+        "process_efficiency": "METALLURGICAL INSIGHTS: Process efficiency and age profile based on installed base",
+        "carbon_footprint_strategy": "Carbon footprint and green steel readiness",
+        "modernization_potential": "Modernization potential using SMS technologies",
+        "technical_bottlenecks": "Technical bottlenecks and digitalization opportunities"
+    }},
+    "sales_strategy": {{
+        "value_proposition": "STRATEGIC SALES PITCH (10-15 paragraphs): Recommended SMS portfolio. Value proposition linked to KPIs (energy, yield, CO2, quality). Competitive landscape vs. Danieli, Primetals, Fives. Suggested next steps with concrete actions."
     }}
 }}
 
 CRITICAL INSTRUCTIONS:
-1. Use ALL provided context data as primary sources — CRM, BCG, installed base, priority ranking, financial details, CRM history, country intelligence, company news.
-2. THINK LIKE AN SMS GROUP METALLURGIST AND SALES MANAGER: Focus on technical modernization, lifecycle services, and sustainability (Green Steel).
-3. For missing facts (CEO name, FTE, financial history), use your internal training knowledge to provide accurate information.
-4. For 'financial_history', provide data for the last 10 years if possible. Use Millions of EUR/USD.
-5. For 'priority_analysis', base the score and drivers on the provided PRIORITY RANKING data if available.
-6. For 'country_intelligence', base the analysis on the provided COUNTRY INTELLIGENCE data headlines and your knowledge.
-7. If information is absolutely not available, use "Not available" for strings or null for numbers.
-8. Be concise in the basic fields, but PROVIDE A DETAILED 5-PARAGRAPH DEEP RESEARCH EXPLANATION in the 'priority_analysis.company_explainer' field.
-9. Be highly technical, strategic, and professional."""
+- You must write extensively. The entire report should total 10-15 pages of text when combined.
+- Use '\n\n' for paragraph spacing in long strings to ensure frontend readability.
+- Deliver executive, BCG/McKinsey-level prose. No marketing fluff, no emojis."""
     
     def _generate_fallback_profile(self, customer_data: Dict) -> Dict:
         """Generate a basic profile without AI when API is not available"""
