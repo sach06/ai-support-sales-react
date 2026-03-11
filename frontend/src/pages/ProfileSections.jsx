@@ -141,7 +141,7 @@ const ProfileSections = ({ profile }) => {
         const latest = profile?.latest_balance_sheet || {};
         return (
             <div className="tab-content financial-grid">
-                <div className="financial-card">
+                <div className="financial-card full-width">
                     <h4>Financial Health & Status</h4>
                     <p>{profile?.market_intelligence?.financial_health || 'N/A'}</p>
                 </div>

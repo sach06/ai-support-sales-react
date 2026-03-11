@@ -1182,7 +1182,7 @@ class DataIngestionService:
 
 
     
-    def get_stats(self, region: str = "All", country: str = "All", equipment_type: str = "All") -> Dict:
+    def get_stats(self, region: str = "All", country: str = "All", equipment_type: str = "All", company_name: str = "All") -> Dict:
         """Return summary statistics for the statistics panel:
         distributions of capacity, equipment age, start year, operational status."""
         import json
@@ -1199,14 +1199,20 @@ class DataIngestionService:
                     CAST(status_internal AS VARCHAR)  as status,
                     CAST(capacity_internal AS DOUBLE)  as capacity,
                     CAST(start_year_internal AS INTEGER) as start_year,
-                    CAST(? - start_year_internal AS INTEGER) as age,
+                    CASE
+                        WHEN start_year_internal IS NOT NULL
+                             AND start_year_internal > 1900
+                             AND start_year_internal <= ?
+                        THEN CAST(? - start_year_internal AS INTEGER)
+                        ELSE NULL
+                    END as age,
                     CAST(equipment_type AS VARCHAR)    as equipment_type,
                     CAST(country_internal AS VARCHAR)  as country,
-                    CAST(region AS VARCHAR)            as region
-                FROM bcg_installed_base
-                WHERE start_year_internal IS NOT NULL
-                  AND start_year_internal > 1900
-                  AND start_year_internal <= ?
+                    CAST(region AS VARCHAR)            as region,
+                    COALESCE(CAST(m.crm_name AS VARCHAR), CAST(b.company_internal AS VARCHAR)) as company_name
+                FROM bcg_installed_base b
+                LEFT JOIN company_mappings m ON b.company_internal = m.bcg_name
+                WHERE 1=1
             """
             current_year = pd.Timestamp.now().year
             params: list = [current_year, current_year]
@@ -1223,6 +1229,9 @@ class DataIngestionService:
                 internal = self.EQUIPMENT_MAP.get(equipment_type, equipment_type)
                 query += " AND equipment_type = ?"
                 params.append(internal)
+            if company_name != "All":
+                query += " AND COALESCE(m.crm_name, b.company_internal) = ?"
+                params.append(company_name)
 
             df = self.execute_df(query, params)
             if df.empty:

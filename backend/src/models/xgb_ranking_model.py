@@ -278,8 +278,15 @@ class XGBPriorityModel:
         df = df.sort_values("priority_score", ascending=False).reset_index(drop=True)
         df.index += 1  # 1-based rank
 
-        out = df[["_company", "_equipment_type", "_country", "_equipment_age", "priority_score"]].copy()
-        out.columns = ["company", "equipment_type", "country", "equipment_age", "priority_score"]
+        cols_to_keep = ["_company", "_equipment_type", "_country", "_equipment_age", "priority_score"]
+        final_cols = ["company", "equipment_type", "country", "equipment_age", "priority_score"]
+        
+        if "_site_city" in df.columns:
+            cols_to_keep.append("_site_city")
+            final_cols.append("site_city")
+            
+        out = df[cols_to_keep].copy()
+        out.columns = final_cols
         out.insert(0, "rank", out.index)
 
         if top_k:

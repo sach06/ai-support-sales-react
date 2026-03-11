@@ -270,7 +270,14 @@ Generate a JSON object with the following structure. Pay extraordinary attention
     }},
     "sales_strategy": {{
         "value_proposition": "STRATEGIC SALES PITCH (10-15 paragraphs): Recommended SMS portfolio. Value proposition linked to KPIs (energy, yield, CO2, quality). Competitive landscape vs. Danieli, Primetals, Fives. Suggested next steps with concrete actions."
-    }}
+    }},
+    "statistical_interpretations": {{
+        "charts_explanation": "STATISTICAL GRAPHS ANALYSIS (2-3 paragraphs): Describe in 2 to 3 paragraphs what is displayed in the data distributions, geographical footprint, and statistical breakdowns based on the data points provided in this context. Explain equipment age curves, capacity footprints, or similar."
+    }},
+    "references": [
+        "Include URL link and source name (e.g. 'Outokumpu Annual Report: https://...') used in this report",
+        "Source 2... "
+    ]
 }}
 
 CRITICAL INSTRUCTIONS:

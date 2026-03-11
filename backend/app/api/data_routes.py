@@ -287,6 +287,7 @@ def get_stats(
     region: Optional[str] = Query(default="All"),
     country: Optional[str] = Query(default="All"),
     equipment_type: Optional[str] = Query(default="All"),
+    company_name: Optional[str] = Query(default="All"),
 ):
     """Return summary statistics (distributions) for the Statistics panel."""
     import traceback
@@ -295,6 +296,7 @@ def get_stats(
             region=region,
             country=country,
             equipment_type=equipment_type,
+            company_name=company_name
         )
         # Sanitize: numpy.int64 keys from value_counts().to_dict() break FastAPI JSON encoder
         return json_safe_sanitize(result)

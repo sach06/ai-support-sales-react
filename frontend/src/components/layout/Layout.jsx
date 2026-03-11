@@ -5,6 +5,7 @@ import { useDataStore } from '../../store/useDataStore';
 import { useQuery } from '@tanstack/react-query';
 import { getCountries, getRegions, getEquipmentTypes, getCustomers, getCompanyNames, loadData, getLoadProgress } from '../../api/dataApi';
 import api from '../../api/client';
+import smsLogo from '../../sms logo.png';
 import './Layout.css';
 
 const Layout = () => {
@@ -151,6 +152,10 @@ const Layout = () => {
         { name: 'Customer Details', href: '/customer' },
     ];
 
+    const effectiveProgress = loadProgress || (dataLoaded
+        ? { running: false, done: true, step: 'Data loaded', percent: 100, error: null }
+        : null);
+
     return (
         <div className="app-container">
             {/* Sidebar */}
@@ -160,6 +165,7 @@ const Layout = () => {
                 </div>
 
                 <nav className="nav-menu">
+                    <img src={smsLogo} alt="SMS logo" className="navigation-logo" />
                     <h3 className="sidebar-section-title">Navigation</h3>
                     <ul className="nav-list">
                         {navigation.map((item) => (
@@ -188,7 +194,7 @@ const Layout = () => {
                                 <label>Region</label>
                                 <select value={region} onChange={(e) => setRegion(e.target.value)}>
                                     <option value="All">All</option>
-                                    {regionsList.map(item => <option key={item} value={item}>{item}</option>)}
+                                    {regionsList.filter(i => i !== 'All').map(item => <option key={item} value={item}>{item}</option>)}
                                 </select>
                             </div>
 
@@ -196,7 +202,7 @@ const Layout = () => {
                                 <label>Country</label>
                                 <select value={country} onChange={(e) => setCountry(e.target.value)}>
                                     <option value="All">All</option>
-                                    {countriesList.map(item => <option key={item} value={item}>{item}</option>)}
+                                    {countriesList.filter(i => i !== 'All').map(item => <option key={item} value={item}>{item}</option>)}
                                 </select>
                             </div>
 
@@ -204,14 +210,14 @@ const Layout = () => {
                                 <label>Equipment Type</label>
                                 <select value={equipmentType} onChange={(e) => setEquipmentType(e.target.value)}>
                                     <option value="All">All</option>
-                                    {equipmentList.map(item => <option key={item} value={item}>{item}</option>)}
+                                    {equipmentList.filter(i => i !== 'All').map(item => <option key={item} value={item}>{item}</option>)}
                                 </select>
                             </div>
 
                             <div className="form-group">
                                 <label>Company Name</label>
                                 <select value={companyName} onChange={(e) => setCompanyName(e.target.value)} title="Deep dive into a specific customer">
-                                    {activeCompanies.map(item => <option key={item} value={item}>{item}</option>)}
+                                    {activeCompanies.filter((item, index, self) => self.indexOf(item) === index).map(item => <option key={item} value={item}>{item}</option>)}
                                 </select>
                             </div>
                         </div>
@@ -227,18 +233,18 @@ const Layout = () => {
                         {dataLoaded && !loadingDb && <div className="success-box">Data is loaded</div>}
 
                         {/* Progress Bar */}
-                        {loadProgress && (loadProgress.running || loadProgress.done) && (
+                        {effectiveProgress && (effectiveProgress.running || effectiveProgress.done) && (
                             <div className="load-progress-container">
-                                <div className="load-progress-step">{loadProgress.step}</div>
+                                <div className="load-progress-step">{effectiveProgress.step}</div>
                                 <div className="load-progress-bar-track">
                                     <div
-                                        className={`load-progress-bar-fill ${loadProgress.done && !loadProgress.error ? 'complete' : ''} ${loadProgress.error ? 'error' : ''}`}
-                                        style={{ width: `${loadProgress.percent}%` }}
+                                        className={`load-progress-bar-fill ${effectiveProgress.done && !effectiveProgress.error ? 'complete' : ''} ${effectiveProgress.error ? 'error' : ''}`}
+                                        style={{ width: `${effectiveProgress.percent}%` }}
                                     />
                                 </div>
-                                <div className="load-progress-percent">{loadProgress.percent}%</div>
-                                {loadProgress.error && (
-                                    <div className="load-progress-error">{loadProgress.error}</div>
+                                <div className="load-progress-percent">{effectiveProgress.percent}%</div>
+                                {effectiveProgress.error && (
+                                    <div className="load-progress-error">{effectiveProgress.error}</div>
                                 )}
                             </div>
                         )}

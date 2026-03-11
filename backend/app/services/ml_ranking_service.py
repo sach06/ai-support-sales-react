@@ -200,6 +200,11 @@ class MLRankingService:
 
             self._feat_df, _ = extract_equipment_features(bcg_df, crm_df)
 
+            # Prefer per-row city from BCG so Ranking "Site / City" matches Overview tables.
+            city_col = next((c for c in ["city_internal", "City", "city", "site_name"] if c in bcg_df.columns), None)
+            if city_col is not None:
+                self._feat_df["_site_city"] = bcg_df[city_col].fillna("").astype(str)
+
             # ── Enrich with Axel IB location data (site city, last startup) ──
             self._feat_df = self._enrich_with_ib(self._feat_df)
 
@@ -261,7 +266,13 @@ class MLRankingService:
                 return None
 
             feat_df = feat_df.copy()
-            feat_df["_site_city"]     = feat_df["_company"].apply(_lookup_city)
+            if "_site_city" not in feat_df.columns:
+                feat_df["_site_city"] = ""
+
+            feat_df["_site_city"] = feat_df.apply(
+                lambda r: r.get("_site_city") if str(r.get("_site_city", "")).strip() else _lookup_city(r.get("_company", "")),
+                axis=1
+            )
             feat_df["_last_startup"]  = feat_df["_company"].apply(_lookup_year)
         except Exception as e:
             logger.debug("IB enrichment skipped: %s", e)
@@ -334,8 +345,14 @@ class MLRankingService:
         df = df.sort_values("priority_score", ascending=False).reset_index(drop=True)
         df.index += 1
 
-        out = df[["_company", "_equipment_type", "_country", "_equipment_age", "priority_score"]].copy()
-        out.columns = ["company", "equipment_type", "country", "equipment_age", "priority_score"]
+        cols_to_keep = ["_company", "_equipment_type", "_country", "_equipment_age", "priority_score"]
+        final_cols = ["company", "equipment_type", "country", "equipment_age", "priority_score"]
+        if "_site_city" in df.columns:
+            cols_to_keep.append("_site_city")
+            final_cols.append("site_city")
+
+        out = df[cols_to_keep].copy()
+        out.columns = final_cols
         out.insert(0, "rank", out.index)
 
         if top_k:

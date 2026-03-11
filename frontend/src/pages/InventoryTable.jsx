@@ -11,7 +11,7 @@ const InventoryTable = ({ data }) => {
         {
             header: 'Site',
             id: 'site',
-            accessorFn: row => row.City || row.site_name || '—',
+            accessorFn: row => row.site_city || row.city_internal || row.City || row.site_name || '—',
         },
         {
             header: 'Country',

@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from app.services.ml_ranking_service import ml_ranking_service
 from app.utils.json_utils import df_to_json_safe
+import json
 
 router = APIRouter()
 
@@ -30,6 +31,30 @@ def get_ranked_list(
         )
         if df.empty:
             return {"rankings": []}
+
+        feature_explanations = {
+            "equipment_age": "Older assets typically indicate stronger modernization demand and higher replacement potential.",
+            "is_sms_oem": "Existing SMS footprint improves technical fit, installed-base continuity, and service upsell likelihood.",
+            "crm_rating_num": "Higher CRM relationship quality usually correlates with easier access to decision-makers and faster deal conversion.",
+            "crm_projects_count": "A deeper project history with the account signals proven execution trust and cross-sell potential.",
+            "log_fte": "Larger organizations often have broader capex programs and better ability to fund major revamp projects.",
+            "equipment_type_enc": "Certain equipment classes are structurally more likely to require upgrades based on lifecycle and process criticality.",
+            "country_enc": "Country context captures structural market effects such as policy pressure, cost base, and investment cycles."
+        }
+
+        model_meta = ml_ranking_service.get_model_metadata() if not force_heuristic else {}
+        model_importance = model_meta.get("feature_importance", {}) if isinstance(model_meta, dict) else {}
+        if model_importance:
+            sorted_features = sorted(model_importance.items(), key=lambda kv: float(kv[1]), reverse=True)
+            default_top_feature_dict = {k: float(v) for k, v in sorted_features[:5]}
+        else:
+            default_top_feature_dict = {
+                "equipment_age": 1.0,
+                "is_sms_oem": 0.85,
+                "crm_rating_num": 0.8,
+                "crm_projects_count": 0.75,
+                "log_fte": 0.7,
+            }
             
         # Convert to records
         records = df.to_dict(orient="records")
@@ -44,6 +69,10 @@ def get_ranked_list(
             else:
                 rec["opportunity_type"] = "Service Contract"
                 rec["opportunity_description"] = f"Modern equipment ({age:.1f} yrs). Focus on predictive maintenance and spares."
+
+            if not rec.get("top_features"):
+                rec["top_features"] = json.dumps(default_top_feature_dict)
+            rec["driver_explanations"] = feature_explanations
                 
         from app.utils.json_utils import json_safe_sanitize
         return {"rankings": json_safe_sanitize(records)}

@@ -6,11 +6,15 @@ from docx import Document
 from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.style import WD_STYLE_TYPE
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from io import BytesIO
 from datetime import datetime
 import logging
 from typing import Dict, List, Optional
 import base64
+from pathlib import Path
+import tempfile
 
 try:
     import plotly.io as pio
@@ -53,8 +57,8 @@ class EnhancedExportService:
         self._add_title_page(doc, customer_name)
         self._add_table_of_contents(doc)
 
-        # Pg 1-2: Customer Profile
-        self._add_customer_profile_section(doc, profile_data, customer_data)
+        # Pg 1-2: Customer Profile (Restructured)
+        self._add_customer_profile_section(doc, profile_data, customer_data, charts)
 
         # Pg 3: Priority Ranking Analysis
         self._add_priority_ranking_section(doc, profile_data)
@@ -93,6 +97,12 @@ class EnhancedExportService:
         if financial_data:
             self._add_financial_section(doc, financial_data, charts)
 
+        # Pg 14: Recent News & Developments (Moved here)
+        self._add_recent_news_section(doc, profile_data)
+
+        # Pg 15: References
+        self._add_references_section(doc, profile_data)
+
         self._add_footer(doc)
         buffer = BytesIO()
         doc.save(buffer)
@@ -100,33 +110,54 @@ class EnhancedExportService:
         return buffer
     
     def _setup_document_styles(self, doc: Document):
-        """Configure professional document styles"""
-        styles = doc.styles
+        """Setup professional document styles"""
+        style = doc.styles['Normal']
+        font = style.font
+        font.name = 'Calibri'
+        font.size = Pt(11)
+
+        # Heading 1
+        h1 = doc.styles['Heading 1']
+        h1.font.size = Pt(18)
+        h1.font.bold = True
+        h1.font.color.rgb = RGBColor(0, 51, 102)
+
+        # Heading 2
+        h2 = doc.styles['Heading 2']
+        h2.font.size = Pt(14)
+        h2.font.bold = True
+        h2.font.color.rgb = RGBColor(0, 102, 204)
+
+        # Heading 3
+        h3 = doc.styles['Heading 3']
+        h3.font.size = Pt(12)
+        h3.font.italic = True
+        h3.font.color.rgb = RGBColor(50, 50, 50)
+
+        # List bullet style
+        if 'List Bullet' in doc.styles:
+            bullet = doc.styles['List Bullet']
+            bullet.paragraph_format.left_indent = Inches(0.25)
         
-        # Heading 1 style
-        if 'Heading 1' in [s.name for s in styles]:
-            h1 = styles['Heading 1']
-            h1.font.name = 'Arial'
-            h1.font.size = Pt(18)
-            h1.font.bold = True
-            h1.font.color.rgb = RGBColor(0, 51, 102)  # Professional blue
-        
-        # Heading 2 style
-        if 'Heading 2' in [s.name for s in styles]:
-            h2 = styles['Heading 2']
-            h2.font.name = 'Arial'
-            h2.font.size = Pt(14)
-            h2.font.bold = True
-            h2.font.color.rgb = RGBColor(0, 102, 204)
-        
-        # Normal text
-        if 'Normal' in [s.name for s in styles]:
-            normal = styles['Normal']
-            normal.font.name = 'Arial'
+        # Add custom list bullet 2
+        if 'List Bullet 2' not in doc.styles:
+            doc.styles.add_style('List Bullet 2', WD_STYLE_TYPE.PARAGRAPH)
+            normal = doc.styles['List Bullet 2']
             normal.font.size = Pt(11)
     
     def _add_title_page(self, doc: Document, customer_name: str):
-        """Add professional title page"""
+        """Add professional title page with logo"""
+        # Add SMS group logo
+        logo_path = Path(__file__).resolve().parent.parent.parent / "assets" / "logo.png"
+        if logo_path.exists():
+            doc.add_picture(str(logo_path), width=Inches(1.5))
+            last_para = doc.paragraphs[-1]
+            last_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        
+        doc.add_paragraph()
+        doc.add_paragraph()
+        doc.add_paragraph()
+
         # Title
         title = doc.add_paragraph()
         title.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -164,8 +195,8 @@ class EnhancedExportService:
             '1. Customer Profile',
             '2. Priority Ranking Analysis',
             '3. Project History & Sales Relationship',
-            '4. CRM Historical Performance (Pipeline & Win Rates)',
-            '5. Deep Dive Analytics (KPIs, Revenue Trends)',
+            '4. CRM Historical Performance',
+            '5. Deep Dive Analytics',
             '6. Market Intelligence',
             '7. Country-Level External Intelligence',
             '8. Installed Base — Axel\'s IB List',
@@ -173,19 +204,27 @@ class EnhancedExportService:
             '10. Metallurgical & Technical Insights',
             '11. Strategic Sales Pitch',
             '12. Financial Analysis',
+            '13. Recent News & Developments',
+            '14. References',
         ]
         for item in toc_items:
             doc.add_paragraph(item, style='List Bullet')
         doc.add_page_break()
     
-    def _add_customer_profile_section(self, doc: Document, profile_data: Dict, customer_data: Dict):
-        """Add customer profile section"""
+    def _add_customer_profile_section(self, doc: Document, profile_data: Dict, customer_data: Dict, charts: Dict):
+        """Add restructured customer profile section"""
         doc.add_heading('1. Customer Profile', level=1)
         
+        # 1.1 Locations of customer on the map
+        doc.add_heading('1.1 Locations on Map', level=2)
+        if charts and 'Locations Map' in charts:
+            self._add_chart_to_doc(doc, charts['Locations Map'], 'Locations Map')
+        else:
+            doc.add_paragraph('No location map available.')
+
+        # 1.2 Basic Information
+        doc.add_heading('1.2 Basic Information', level=2)
         basic_data = profile_data.get('basic_data', {})
-        
-        # Basic Information Table
-        doc.add_heading('Basic Information', level=2)
         table = doc.add_table(rows=0, cols=2)
         table.style = 'Light Grid Accent 1'
         
@@ -203,10 +242,29 @@ class EnhancedExportService:
             row = table.add_row()
             row.cells[0].text = label
             row.cells[1].text = str(value)
-            # Bold the labels
             row.cells[0].paragraphs[0].runs[0].font.bold = True
         
-        # Company Overview (if available from external sources)
+        # 1.3 Equipment distribution
+        doc.add_heading('1.3 Equipment Distribution', level=2)
+        if charts:
+            if 'Equipment Distribution' in charts:
+                self._add_chart_to_doc(doc, charts['Equipment Distribution'], 'Portfolio Mix')
+            
+            # Additional Fleet Statistics
+            for chart_name in ['Status Distribution', 'Age Distribution', 'Capacity Profile']:
+                if chart_name in charts:
+                    doc.add_heading(f'Fleet Insight: {chart_name}', level=3)
+                    self._add_chart_to_doc(doc, charts[chart_name], chart_name)
+
+        # 1.4 Statistical data analysis
+        doc.add_heading('1.4 Statistical Data Analysis', level=2)
+        stat = profile_data.get('statistical_interpretations', {})
+        if stat and stat.get('charts_explanation'):
+            doc.add_paragraph(str(stat.get('charts_explanation', '')))
+        else:
+            doc.add_paragraph('Detailed distribution analysis of the installed base portfolio.')
+
+        # Company Overview (Historical part of section 1)
         if 'company_overview' in profile_data:
             doc.add_heading('Company Overview', level=2)
             overview = profile_data['company_overview']
@@ -217,22 +275,88 @@ class EnhancedExportService:
                 p.add_run('Source: ')
                 p.add_run(overview['source_url']).font.italic = True
         
-        # Latest Developments (if available)
-        if 'recent_news' in profile_data:
-            doc.add_heading('Recent News & Developments', level=2)
-            news_items = profile_data['recent_news']
-            for idx, news in enumerate(news_items[:5], 1):
-                p = doc.add_paragraph(style='List Number')
-                p.add_run(f"{news.get('title', 'No title')}").font.bold = True
-                p.add_run(f" ({news.get('published_date', 'Unknown date')})")
-                if news.get('description'):
-                    doc.add_paragraph(news['description'], style='List Bullet 2')
-                if news.get('url'):
-                    p = doc.add_paragraph(style='List Bullet 2')
-                    p.add_run('URL: ')
-                    p.add_run(news['url']).font.italic = True
-        
         doc.add_page_break()
+
+    def _add_recent_news_section(self, doc: Document, profile_data: Dict):
+        """Add Recent News & Developments section before references"""
+        doc.add_heading('Recent News & Developments', level=1)
+        if 'recent_news' in profile_data:
+            news_items = profile_data['recent_news']
+            for news in news_items[:10]:
+                p = doc.add_paragraph(style='List Number')
+                title = news.get('title', 'No title')
+                url = news.get('url')
+                if url:
+                    self._add_hyperlink(p, title, url)
+                else:
+                    p.add_run(title).font.bold = True
+
+                published_date = news.get('published_date', 'Unknown date')
+                if published_date:
+                    p.add_run(f" ({published_date})")
+
+                if news.get('description'):
+                    doc.add_paragraph(str(news['description']), style='List Bullet 2')
+        else:
+            doc.add_paragraph('No recent news available.')
+        doc.add_page_break()
+
+    def _add_hyperlink(self, paragraph, text: str, url: str):
+        """Insert a clickable hyperlink run into a python-docx paragraph."""
+        part = paragraph.part
+        r_id = part.relate_to(url, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink", is_external=True)
+
+        hyperlink = OxmlElement('w:hyperlink')
+        hyperlink.set(qn('r:id'), r_id)
+
+        new_run = OxmlElement('w:r')
+        r_pr = OxmlElement('w:rPr')
+
+        color = OxmlElement('w:color')
+        color.set(qn('w:val'), '0563C1')
+        r_pr.append(color)
+
+        underline = OxmlElement('w:u')
+        underline.set(qn('w:val'), 'single')
+        r_pr.append(underline)
+
+        new_run.append(r_pr)
+        text_elem = OxmlElement('w:t')
+        text_elem.text = text
+        new_run.append(text_elem)
+        hyperlink.append(new_run)
+
+        paragraph._p.append(hyperlink)
+
+    def convert_docx_to_pdf(self, docx_buffer: BytesIO) -> BytesIO:
+        """Convert DOCX bytes to PDF so both exports contain the same content."""
+        try:
+            from docx2pdf import convert
+        except ImportError as exc:
+            raise RuntimeError(
+                "docx2pdf is required for PDF export consistency. Install with: pip install docx2pdf"
+            ) from exc
+
+        with tempfile.TemporaryDirectory(prefix='sms_export_') as tmpdir:
+            tmp_path = Path(tmpdir)
+            in_path = tmp_path / 'report.docx'
+            out_path = tmp_path / 'report.pdf'
+
+            in_path.write_bytes(docx_buffer.getvalue())
+
+            try:
+                convert(str(in_path), str(out_path))
+            except Exception as exc:
+                raise RuntimeError(
+                    "DOCX-to-PDF conversion failed. Ensure Microsoft Word is installed and accessible on this machine."
+                ) from exc
+
+            if not out_path.exists():
+                raise RuntimeError("PDF file was not produced by docx2pdf conversion.")
+
+            pdf_buffer = BytesIO(out_path.read_bytes())
+            pdf_buffer.seek(0)
+            return pdf_buffer
     
     def _add_deep_dive_section(self, doc: Document, customer_data: Dict, charts: Dict):
         """Add deep dive analytics section"""
@@ -650,12 +774,39 @@ class EnhancedExportService:
                 doc.add_paragraph(str(val))
         doc.add_page_break()
     
+    def _add_statistical_charts_section(self, doc: Document, profile_data: Dict, charts: Dict):
+        """Section 14: Statistical Graphs"""
+        doc.add_heading('14. Statistical Graphs & Visualizations', level=1)
+        
+        stat = (profile_data or {}).get('statistical_interpretations', {})
+        if stat and stat.get('charts_explanation'):
+            doc.add_heading('Statistical Data Analysis', level=2)
+            doc.add_paragraph(str(stat.get('charts_explanation', '')))
+        
+        for chart_name, fig in charts.items():
+            doc.add_heading(chart_name, level=2)
+            self._add_chart_to_doc(doc, fig, chart_name)
+        
+        doc.add_page_break()
+        
+    def _add_references_section(self, doc: Document, profile_data: Dict):
+        """Section 15: References"""
+        doc.add_heading('15. References', level=1)
+        refs = (profile_data or {}).get('references', [])
+        
+        if not refs:
+            doc.add_paragraph('No specific external references cited.')
+        else:
+            for ref in refs:
+                doc.add_paragraph(str(ref), style='List Bullet')
+        doc.add_page_break()
+
     def generate_filename(self, customer_name: str, extension: str) -> str:
-        """Generate standardized filename"""
+        """Generate standardized filename with date and time"""
         safe_name = "".join(c for c in customer_name if c.isalnum() or c in (' ', '-', '_')).strip()
         safe_name = safe_name.replace(' ', '_')
-        timestamp = datetime.now().strftime('%Y%m%d')
-        return f"{safe_name}_Analysis_{timestamp}.{extension}"
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        return f"{safe_name}_{timestamp}.{extension}"
     
     def generate_comprehensive_pdf(
         self,
@@ -670,22 +821,10 @@ class EnhancedExportService:
         ib_data: Dict = None,
     ) -> BytesIO:
         """
-        Generate comprehensive customer analysis PDF using reportlab
-        
-        Args:
-            customer_name: Customer name
-            profile_data: AI-generated profile
-            customer_data: Raw CRM data
-            market_intel: Market intelligence analysis
-            projects: Project data
-            financial_data: Financial analysis data
-            charts: Dict of plotly figure objects {'chart_name': fig}
-        
-        Returns:
-            BytesIO buffer containing PDF
+        Generate comprehensive customer analysis PDF with restructured chapters and logo
         """
         try:
-            from reportlab.lib.pagesizes import letter, A4
+            from reportlab.lib.pagesizes import letter
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
             from reportlab.lib.units import inch
             from reportlab.lib import colors
@@ -699,8 +838,6 @@ class EnhancedExportService:
             raise ImportError("reportlab is required for PDF export. Install with: pip install reportlab")
         
         buffer = BytesIO()
-        
-        # Create PDF document
         doc = SimpleDocTemplate(
             buffer,
             pagesize=letter,
@@ -710,16 +847,13 @@ class EnhancedExportService:
             bottomMargin=18,
         )
         
-        # Container for the 'Flowable' objects
         elements = []
-        
-        # Define styles
         styles = getSampleStyleSheet()
         styles.add(ParagraphStyle(
             name='CustomTitle',
             parent=styles['Heading1'],
             fontSize=24,
-            textColor=colors.HexColor('#1f2937'),
+            textColor=colors.HexColor('#003366'),
             spaceAfter=30,
             alignment=TA_CENTER
         ))
@@ -727,7 +861,7 @@ class EnhancedExportService:
             name='CustomHeading',
             parent=styles['Heading2'],
             fontSize=16,
-            textColor=colors.HexColor('#374151'),
+            textColor=colors.HexColor('#0066cc'),
             spaceAfter=12,
             spaceBefore=12
         ))
@@ -740,7 +874,12 @@ class EnhancedExportService:
         ))
         
         # Title Page
-        elements.append(Spacer(1, 2*inch))
+        logo_path = Path(__file__).resolve().parent.parent.parent / "assets" / "logo.png"
+        if logo_path.exists():
+            elements.append(RLImage(str(logo_path), width=1.5*inch, height=0.4*inch))
+            elements[-1].hAlign = TA_RIGHT
+
+        elements.append(Spacer(1, 1.5*inch))
         title = Paragraph(f"<b>Customer Analysis Report</b>", styles['CustomTitle'])
         elements.append(title)
         elements.append(Spacer(1, 0.3*inch))
@@ -758,230 +897,105 @@ class EnhancedExportService:
         elements.append(date_text)
         elements.append(PageBreak())
         
-        # Section 1: Customer Profile
+        # Section 1: Customer Profile (Restructured)
         elements.append(Paragraph("<b>1. Customer Profile</b>", styles['CustomHeading']))
 
         def _safe_str(val):
-            """Convert any value to a PDF-safe string."""
-            if val is None:
-                return 'N/A'
-            return str(val).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            if val is None: return 'N/A'
+            val_str = str(val).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            return val_str.replace('\n', '<br/>')
 
-        if profile_data:
-            # Use correct key: 'basic_data' (not 'basic_info')
-            basic_data_pdf = profile_data.get('basic_data', {})
-            if basic_data_pdf:
-                elements.append(Paragraph("<b>Basic Information</b>", styles['Heading3']))
-                info_rows = [
-                    ['Field', 'Value'],
-                    ['Company Name',    _safe_str(basic_data_pdf.get('name'))],
-                    ['HQ Address',      _safe_str(basic_data_pdf.get('hq_address'))],
-                    ['CEO',             _safe_str(basic_data_pdf.get('ceo'))],
-                    ['Owner / Parent',  _safe_str(basic_data_pdf.get('owner'))],
-                    ['Management',      _safe_str(basic_data_pdf.get('management'))],
-                    ['Employees (FTE)', _safe_str(basic_data_pdf.get('fte'))],
-                    ['Financial Status',_safe_str(basic_data_pdf.get('financials'))],
-                    ['Buying Center',   _safe_str(basic_data_pdf.get('buying_center'))],
-                    ['Frame Agreements',_safe_str(basic_data_pdf.get('frame_agreements'))],
-                ]
-                info_table = Table(info_rows, colWidths=[2*inch, 4*inch])
-                info_table.setStyle(TableStyle([
-                    ('BACKGROUND',   (0, 0), (-1, 0), colors.HexColor('#1e3a5f')),
-                    ('TEXTCOLOR',    (0, 0), (-1, 0), colors.white),
-                    ('ALIGN',        (0, 0), (-1, -1), 'LEFT'),
-                    ('FONTNAME',     (0, 0), (-1,  0), 'Helvetica-Bold'),
-                    ('FONTNAME',     (0, 1), ( 0, -1), 'Helvetica-Bold'),
-                    ('FONTSIZE',     (0, 0), (-1, -1), 10),
-                    ('ROWBACKGROUNDS',(0, 1), (-1, -1),
-                     [colors.HexColor('#f9fafb'), colors.white]),
-                    ('GRID',         (0, 0), (-1, -1), 0.5, colors.HexColor('#d1d5db')),
-                    ('TOPPADDING',   (0, 0), (-1, -1), 6),
-                    ('BOTTOMPADDING',(0, 0), (-1, -1), 6),
-                ]))
-                elements.append(info_table)
+        # 1.1 Locations on Map
+        elements.append(Paragraph("<b>1.1 Locations on Map</b>", styles['Heading3']))
+        if charts and 'Locations Map' in charts:
+            try:
+                img_bytes = pio.to_image(charts['Locations Map'], format='png', width=800, height=400)
+                elements.append(RLImage(BytesIO(img_bytes), width=6*inch, height=3*inch))
                 elements.append(Spacer(1, 0.2*inch))
+            except Exception:
+                elements.append(Paragraph("Could not render map chart.", styles['CustomBody']))
+        else:
+            elements.append(Paragraph("No location map available.", styles['CustomBody']))
 
-                # Text areas
-                for label, key in [
-                    ('Ownership History',      'ownership_history'),
-                    ('Recent News & Facts',     'recent_facts'),
-                    ('Company Focus / Vision',  'company_focus'),
-                    ('Embargos / ESG Concerns', 'embargos_esg'),
-                ]:
-                    val = basic_data_pdf.get(key, '')
-                    if val and val != 'N/A':
-                        elements.append(Paragraph(f"<b>{label}</b>", styles['Heading3']))
-                        elements.append(Paragraph(_safe_str(val), styles['CustomBody']))
-                        elements.append(Spacer(1, 0.1*inch))
+        # 1.2 Basic Information
+        elements.append(Paragraph("<b>1.2 Basic Information</b>", styles['Heading3']))
+        basic_data_pdf = profile_data.get('basic_data', {})
+        info_rows = [
+            ['Field', 'Value'],
+            ['Company Name',    _safe_str(basic_data_pdf.get('name'))],
+            ['HQ Address',      _safe_str(basic_data_pdf.get('hq_address'))],
+            ['CEO',             _safe_str(basic_data_pdf.get('ceo'))],
+            ['Owner / Parent',  _safe_str(basic_data_pdf.get('owner'))],
+            ['Employees (FTE)', _safe_str(basic_data_pdf.get('fte'))],
+            ['Financial Status',_safe_str(basic_data_pdf.get('financials'))],
+        ]
+        info_table = Table(info_rows, colWidths=[2*inch, 4*inch])
+        info_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#003366')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1,  0), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ]))
+        elements.append(info_table)
+        elements.append(Spacer(1, 0.2*inch))
 
-            # History
-            history_pdf = profile_data.get('history', {})
-            if history_pdf:
-                elements.append(Paragraph("<b>Project History & Relationship</b>", styles['Heading3']))
-                for label, key in [
-                    ('Latest Projects',  'latest_projects'),
-                    ('Realized Projects','realized_projects'),
-                    ('CRM Rating',       'crm_rating'),
-                    ('SMS Relationship', 'sms_relationship'),
-                    ('Key Contact',      'key_person'),
-                    ('Latest Visits',    'latest_visits'),
-                ]:
-                    val = history_pdf.get(key, '')
-                    if val and val != 'N/A':
-                        elements.append(Paragraph(f"<b>{label}:</b> {_safe_str(val)}", styles['CustomBody']))
-                elements.append(Spacer(1, 0.1*inch))
-
-            # Context
-            context_pdf = profile_data.get('context', {})
-            if context_pdf:
-                elements.append(Paragraph("<b>Market Context</b>", styles['Heading3']))
-                for label, key in [('End Customer', 'end_customer'), ('Market Position', 'market_position')]:
-                    val = context_pdf.get(key, '')
-                    if val and val != 'N/A':
-                        elements.append(Paragraph(f"<b>{label}:</b> {_safe_str(val)}", styles['CustomBody']))
-                elements.append(Spacer(1, 0.1*inch))
-
-            # Sales Strategy
-            strat_pdf = profile_data.get('sales_strategy', {})
-            if strat_pdf:
-                elements.append(Paragraph("<b>Strategic Sales Pitch</b>", styles['Heading3']))
-                for label, key in [
-                    ('Recommended Portfolio', 'recommended_portfolio'),
-                    ('Value Proposition',     'value_proposition'),
-                    ('Competitive Landscape', 'competitive_landscape'),
-                    ('Suggested Next Steps',  'suggested_next_steps'),
-                ]:
-                    val = strat_pdf.get(key, '')
-                    if val and val != 'N/A':
-                        elements.append(Paragraph(f"<b>{label}:</b> {_safe_str(val)}", styles['CustomBody']))
-                elements.append(Spacer(1, 0.1*inch))
-                
-            # Priority Analysis
-            priority_pdf = profile_data.get('priority_analysis', {})
-            if priority_pdf:
-                elements.append(Paragraph("<b>Priority Ranking Analysis</b>", styles['Heading3']))
-                for label, key in [
-                    ('Priority Score', 'priority_score'),
-                    ('Customer Rank', 'priority_rank'),
-                    ('Key Opportunity Drivers', 'key_opportunity_drivers'),
-                    ('Engagement Recommendation', 'engagement_recommendation'),
-                ]:
-                    val = priority_pdf.get(key, '')
-                    if val and val != 'N/A':
-                        elements.append(Paragraph(f"<b>{label}:</b> {_safe_str(val)}", styles['CustomBody']))
-                elements.append(Spacer(1, 0.1*inch))
-                
-            # Country Intelligence
-            ci_pdf = profile_data.get('country_intelligence', {})
-            if ci_pdf:
-                elements.append(Paragraph("<b>Country-Level External Intelligence</b>", styles['Heading3']))
-                for label, key in [
-                    ('Steel Market Summary', 'steel_market_summary'),
-                    ('Economic Context', 'economic_context'),
-                    ('Trade & Tariff Context', 'trade_tariff_context'),
-                    ('Automotive Sector Trends', 'automotive_sector'),
-                    ('Investment Drivers', 'investment_drivers'),
-                ]:
-                    val = ci_pdf.get(key, '')
-                    if val and val != 'N/A':
-                        elements.append(Paragraph(f"<b>{label}:</b> {_safe_str(val)}", styles['CustomBody']))
-                elements.append(Spacer(1, 0.1*inch))
-
-        elements.append(PageBreak())
-
-        # Section 2: Deep Dive Analytics
-        if customer_data:
-            elements.append(Paragraph("<b>2. Deep Dive Analytics</b>", styles['CustomHeading']))
-
-            projects_list = customer_data.get('projects', [])
-            installed_base = customer_data.get('installed_base', [])
-
-            metrics_data = [
-                ['Metric', 'Value'],
-                ['Total Projects',  str(len(projects_list))],
-                ['Total Equipment', str(len(installed_base))],
-                ['Total Revenue',   f"${sum([p.get('value', 0) for p in projects_list]):,.0f}"],
-            ]
-
-            metrics_table = Table(metrics_data, colWidths=[3*inch, 3*inch])
-            metrics_table.setStyle(TableStyle([
-                ('BACKGROUND',    (0, 0), (-1, 0), colors.HexColor('#3b82f6')),
-                ('TEXTCOLOR',     (0, 0), (-1, 0), colors.white),
-                ('ALIGN',         (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME',      (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE',      (0, 0), (-1, 0), 12),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND',    (0, 1), (-1, -1), colors.white),
-                ('GRID',          (0, 0), (-1, -1), 1, colors.HexColor('#e5e7eb')),
-            ]))
-            elements.append(metrics_table)
-            elements.append(Spacer(1, 0.3*inch))
-
-        # Section 3: Market Intelligence
-        # market_intel values are plain strings (not nested dicts)
-        if market_intel and isinstance(market_intel, dict):
-            elements.append(PageBreak())
-            elements.append(Paragraph("<b>3. Market Intelligence</b>", styles['CustomHeading']))
-
-            for mi_label, mi_key in [
-                ('Financial Health',      'financial_health'),
-                ('Recent Developments',   'recent_developments'),
-                ('Market Position',       'market_position'),
-                ('Strategic Outlook',     'strategic_outlook'),
-                ('Risk Assessment',       'risk_assessment'),
-                ('Market Size',           'market_size'),
-                ('Growth Trends',         'growth_trends'),
-            ]:
-                mi_val = market_intel.get(mi_key, '')
-                # Value may be a string or a dict with 'summary'
-                if isinstance(mi_val, dict):
-                    mi_val = mi_val.get('summary', '') or mi_val.get('text', '')
-                if mi_val:
-                    elements.append(Paragraph(f"<b>{mi_label}</b>", styles['Heading3']))
-                    elements.append(Paragraph(_safe_str(mi_val), styles['CustomBody']))
-                    elements.append(Spacer(1, 0.1*inch))
-        
-        # Section 4: Projects
-        if projects and len(projects) > 0:
-            elements.append(PageBreak())
-            elements.append(Paragraph("<b>4. Project Analysis</b>", styles['CustomHeading']))
-            
-            for idx, project in enumerate(projects[:10], 1):  # Limit to top 10
-                project_name = project.get('name', f'Project {idx}')
-                elements.append(Paragraph(f"<b>{idx}. {project_name}</b>", styles['Heading3']))
-                
-                project_data = [
-                    ['Status', project.get('status', 'N/A')],
-                    ['Value', f"${project.get('value', 0):,.0f}"],
-                    ['Budget', f"${project.get('budget', 0):,.0f}"],
-                    ['Progress', f"{project.get('progress', 0)}%"],
-                ]
-                
-                for field, value in project_data:
-                    elements.append(Paragraph(f"<b>{field}:</b> {value}", styles['CustomBody']))
-                
-                elements.append(Spacer(1, 0.15*inch))
-        
-        # Add charts if available
-        if charts and PLOTLY_AVAILABLE:
-            elements.append(PageBreak())
-            elements.append(Paragraph("<b>5. Visualizations</b>", styles['CustomHeading']))
-            
-            for chart_name, fig in charts.items():
+        # 1.3 Equipment Distribution
+        elements.append(Paragraph("<b>1.3 Equipment Distribution & Fleet Statistics</b>", styles['Heading3']))
+        if charts:
+            # Main Portfolio Plot
+            if 'Equipment Distribution' in charts:
                 try:
-                    # Convert plotly to image
-                    img_bytes = pio.to_image(fig, format='png', width=800, height=400)
-                    img_stream = BytesIO(img_bytes)
-                    
-                    # Add to PDF
-                    img = RLImage(img_stream, width=6*inch, height=3*inch)
-                    elements.append(img)
-                    elements.append(Paragraph(f"<i>{chart_name}</i>", styles['Normal']))
-                    elements.append(Spacer(1, 0.2*inch))
-                except Exception as e:
-                    logger.error(f"Failed to add chart {chart_name} to PDF: {e}")
+                    img_bytes = pio.to_image(charts['Equipment Distribution'], format='png', width=800, height=400)
+                    elements.append(RLImage(BytesIO(img_bytes), width=5.5*inch, height=2.8*inch))
+                    elements.append(Spacer(1, 0.1*inch))
+                except Exception: pass
+            
+            # Additional Stats
+            for chart_key in ['Status Distribution', 'Age Distribution', 'Capacity Profile']:
+                if chart_key in charts:
+                    try:
+                        elements.append(Paragraph(f"<b>Fleet Insight: {chart_key}</b>", styles['Normal']))
+                        img_bytes = pio.to_image(charts[chart_key], format='png', width=800, height=400)
+                        elements.append(RLImage(BytesIO(img_bytes), width=5*inch, height=2.5*inch))
+                        elements.append(Spacer(1, 0.2*inch))
+                    except Exception: pass
+
+        # 1.4 Statistical Data Analysis
+        elements.append(Paragraph("<b>1.4 Statistical Data Analysis</b>", styles['Heading3']))
+        stat_pdf = profile_data.get('statistical_interpretations', {})
+        if stat_pdf and stat_pdf.get('charts_explanation'):
+            elements.append(Paragraph(_safe_str(stat_pdf.get('charts_explanation', '')), styles['CustomBody']))
+        else:
+            elements.append(Paragraph("Detailed distribution analysis of the installed base portfolio and operational fleet status.", styles['CustomBody']))
         
-        # Build PDF
+        # Rest of sections...
+        # 2. Priority Ranking
+        elements.append(PageBreak())
+        elements.append(Paragraph("<b>2. Priority Ranking Analysis</b>", styles['CustomHeading']))
+        pa = profile_data.get('priority_analysis', {})
+        elements.append(Paragraph(f"<b>Priority Score:</b> {pa.get('priority_score', 'N/A')}", styles['CustomBody']))
+        elements.append(Paragraph(_safe_str(pa.get('reasoning', '')), styles['CustomBody']))
+
+        # Recent News & Developments (Before references)
+        elements.append(PageBreak())
+        elements.append(Paragraph("<b>Recent News & Developments</b>", styles['CustomHeading']))
+        news = profile_data.get('recent_news', [])
+        if news:
+            for n in news[:10]:
+                elements.append(Paragraph(f"<b>• {n.get('title')}</b> ({n.get('published_date', 'N/A')})", styles['CustomBody']))
+                if n.get('description'):
+                    elements.append(Paragraph(_safe_str(n['description']), ParagraphStyle(name='ind', parent=styles['CustomBody'], leftIndent=20)))
+        else:
+            elements.append(Paragraph("No recent news available.", styles['CustomBody']))
+
+        # References
+        elements.append(PageBreak())
+        elements.append(Paragraph("<b>References</b>", styles['CustomHeading']))
+        for ref in profile_data.get('source_links', []):
+            elements.append(Paragraph(f"• {ref}", styles['CustomBody']))
+
         doc.build(elements)
         buffer.seek(0)
         return buffer

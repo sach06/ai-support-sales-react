@@ -31,6 +31,7 @@ const fetchStats = async ({ queryKey }) => {
             country: filters.country,
             region: filters.region,
             equipment_type: filters.equipmentType,
+            company_name: filters.companyName,
         },
     });
     return response.data;
@@ -49,7 +50,7 @@ const DashboardPage = () => {
     });
 
     const { data: statsData } = useQuery({
-        queryKey: ['dashboard_stats', { country, region, equipmentType }],
+        queryKey: ['dashboard_stats', filters],
         queryFn: fetchStats,
         enabled: dataLoaded,
         staleTime: 60_000,
@@ -121,7 +122,7 @@ const DashboardPage = () => {
 
                 <div className="stats-section match-panel">
                     <h3>Fleet Statistics &amp; Distributions</h3>
-                    <StatisticsPanel summary={statsData?.summary} />
+                    <StatisticsPanel summary={statsData?.summary} displayTotal={plants.length} />
                 </div>
             </div>
 

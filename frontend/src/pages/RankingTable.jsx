@@ -16,14 +16,14 @@ const RankingTable = ({ data, onRowSelect, selectedId, pinnedCompany }) => {
             cell: info => <div style={{ fontWeight: 'bold', width: '30px' }}>{info.getValue()}</div>
         },
         {
-            header: 'Score',
+            header: 'Confidence',
             accessorKey: 'priority_score',
             cell: info => {
                 const s = typeof info.getValue() === 'number' ? info.getValue() : 0;
                 let color = 'inherit';
                 if (s > 75) color = 'var(--excellent)';
                 else if (s > 50) color = 'var(--good)';
-                return <span style={{ fontWeight: '600', color }}>{s.toFixed(1)}</span>;
+                return <span style={{ fontWeight: '600', color }}>{s.toFixed(1)}%</span>;
             }
         },
         {
@@ -49,6 +49,11 @@ const RankingTable = ({ data, onRowSelect, selectedId, pinnedCompany }) => {
         {
             header: 'Country',
             accessorKey: 'country'
+        },
+        {
+            header: 'Site / City',
+            accessorKey: 'site_city',
+            cell: info => info.getValue() || <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>Unknown</span>
         },
         {
             header: 'Equipment',

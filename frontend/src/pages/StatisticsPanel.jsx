@@ -154,7 +154,7 @@ const STATUS_PALETTE = ['#22c55e', '#f59e0b', '#ef4444', '#6b7280', '#a78bfa'];
 const EQUIP_PALETTE = ['#6c63ff', '#06b6d4', '#f59e0b', '#ec4899', '#22c55e',
     '#f97316', '#8b5cf6', '#14b8a6', '#facc15', '#64748b'];
 
-const StatisticsPanel = ({ summary }) => {
+const StatisticsPanel = ({ summary, displayTotal }) => {
     if (!summary || !summary.total) {
         return (
             <div className="stats-empty">
@@ -164,11 +164,12 @@ const StatisticsPanel = ({ summary }) => {
     }
 
     const { total, status_counts = {}, equipment_counts = {}, capacity = {}, age = {}, start_year = {} } = summary;
+    const finalTotal = displayTotal !== undefined ? displayTotal : total;
 
     return (
         <div className="stats-panel">
             <p className="stats-desc">
-                Distribution analysis of <b>{total.toLocaleString()}</b> installed plant records —
+                Distribution analysis of <b>{finalTotal.toLocaleString()}</b> installed plant records —
                 capacities, ages, operational status and equipment mix.
             </p>
 

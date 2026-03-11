@@ -13,7 +13,10 @@ export const exportDocx = async (profile, customerName) => {
 
     // Attempt to extract filename from content-disposition header if available, otherwise fallback
     const contentDisposition = response.headers['content-disposition'];
-    let fileName = `${customerName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_profile.docx`;
+    const timestamp = new Date().toISOString().replace(/T/, '_').replace(/:/g, '-').split('.')[0];
+    const safeName = customerName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+
+    let fileName = `${safeName}_${timestamp}.docx`;
     if (contentDisposition) {
         const fileNameMatch = contentDisposition.match(/filename\*?=['"]?(?:UTF-\d['"]*)?([^;\r\n"']*)['"]?;?/);
         if (fileNameMatch && fileNameMatch.length === 2) {
@@ -39,7 +42,10 @@ export const exportPdf = async (profile, customerName) => {
     link.href = url;
 
     const contentDisposition = response.headers['content-disposition'];
-    let fileName = `${customerName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_profile.pdf`;
+    const timestamp = new Date().toISOString().replace(/T/, '_').replace(/:/g, '-').split('.')[0];
+    const safeName = customerName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+
+    let fileName = `${safeName}_${timestamp}.pdf`;
     if (contentDisposition) {
         const fileNameMatch = contentDisposition.match(/filename\*?=['"]?(?:UTF-\d['"]*)?([^;\r\n"']*)['"]?;?/);
         if (fileNameMatch && fileNameMatch.length === 2) {

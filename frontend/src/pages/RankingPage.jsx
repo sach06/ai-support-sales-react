@@ -44,6 +44,24 @@ const RankingPage = () => {
         );
     }
 
+    // Auto-select the company in focus if it exists in the ranking set, otherwise pick the top rank.
+    useEffect(() => {
+        if (rankings && rankings.length > 0) {
+            if (companyName && companyName !== 'All') {
+                const target = rankings.find(r => r.company.toLowerCase() === companyName.toLowerCase());
+                if (target) {
+                    setSelectedCompany(target);
+                    return;
+                }
+            }
+            // If target isn't explicitly found, keep current selection, 
+            // but if we have no selection yet, gracefully default to the first
+            if (!selectedCompany && rankings[0]) {
+                setSelectedCompany(rankings[0]);
+            }
+        }
+    }, [rankings, companyName]);
+
     return (
         <div className="ranking-container">
             {/* Header Banner */}
