@@ -171,36 +171,59 @@ class MarketIntelligenceService:
         company_name = profile_data.get('basic_data', {}).get('name', 'Unknown')
         industry = profile_data.get('basic_data', {}).get('company_focus', 'Industrial')
         installed_base = customer_data.get('installed_base', [])
-        
-        equipment_summary = f"Equipment count: {len(installed_base)}"
-        if installed_base:
-            types = [eq.get('equipment_type', 'Unknown') for eq in installed_base[:5]]
-            equipment_summary += f", Types: {', '.join(types)}"
-        
-        prompt = f"""Analyze the following company and provide market intelligence:
+
+        equipment_counts = {}
+        oem_counts = {}
+        countries = set()
+        startup_years = []
+        for eq in installed_base:
+            eq_type = str(eq.get('equipment_type', 'Unknown'))
+            oem = str(eq.get('manufacturer', 'Unknown'))
+            country = str(eq.get('country', '') or eq.get('country_internal', '')).strip()
+            startup = eq.get('year_of_startup') or eq.get('start_year') or eq.get('start_year_internal')
+            equipment_counts[eq_type] = equipment_counts.get(eq_type, 0) + 1
+            oem_counts[oem] = oem_counts.get(oem, 0) + 1
+            if country:
+                countries.add(country)
+            try:
+                if startup is not None and str(startup).strip():
+                    startup_years.append(int(float(startup)))
+            except Exception:
+                pass
+
+        equipment_summary = (
+            f"Equipment count: {len(installed_base)}\n"
+            f"Top equipment types: {', '.join(f'{k} ({v})' for k, v in sorted(equipment_counts.items(), key=lambda kv: kv[1], reverse=True)[:6]) or 'Unknown'}\n"
+            f"OEM mix: {', '.join(f'{k} ({v})' for k, v in sorted(oem_counts.items(), key=lambda kv: kv[1], reverse=True)[:6]) or 'Unknown'}\n"
+            f"Countries: {', '.join(sorted(countries)) if countries else 'Unknown'}\n"
+            f"Oldest startup year: {min(startup_years) if startup_years else 'Unknown'}\n"
+            f"Newest startup year: {max(startup_years) if startup_years else 'Unknown'}"
+        )
+
+        prompt = f"""Analyze the following company and provide market intelligence for SMS group.
 
 Company: {company_name}
 Industry: {industry}
 {equipment_summary}
 
-Provide a structured analysis covering:
+Provide a structured analysis covering the sections below. Avoid generic phrases such as 'well positioned' or 'analysis pending'. Tie each conclusion to specific evidence and explain what it means for SMS group commercially.
 
 1. FINANCIAL HEALTH
-Assess financial stability, recent performance trends, debt levels, and investment capacity.
+Assess financial stability, recent performance trends, debt levels, capex headroom, and investment capacity for modernization or decarbonization.
 
 2. RECENT DEVELOPMENTS  
-Highlight any significant recent news, projects, expansions, or strategic changes from the past 12-24 months.
+Highlight significant recent news, projects, expansions, outages, strategic changes, or policy shifts from the past 12-24 months.
 
 3. MARKET POSITION
-Analyze their competitive position, market share indicators, and strategic advantages.
+Analyze competitive position, product-market focus, OEM landscape, and strategic advantages in the steel value chain.
 
 4. STRATEGIC OUTLOOK
-Evaluate future growth prospects, expansion plans, technology adoption, and sustainability initiatives.
+Evaluate growth prospects, expansion plans, technology adoption, decarbonization agenda, and likely procurement triggers.
 
 5. RISK ASSESSMENT
-Identify key business risks including market risks, operational risks, and external factors.
+Identify business risks including market, operational, technical, energy, and trade-policy risks, then explain the SMS implication.
 
-Provide actionable insights for a sales team in the metallurgical equipment sector."""
+Provide actionable insights for a sales team in the metallurgical equipment sector. Use steel-process language where relevant (BF/BOF, EAF, caster, hot strip, finishing, energy intensity, yield, maintenance shutdowns)."""
 
         return prompt
     
@@ -247,17 +270,70 @@ Provide actionable insights for a sales team in the metallurgical equipment sect
     def _generate_fallback_intelligence(self, customer_data: Dict, profile_data: Dict) -> Dict[str, str]:
         """Generate basic intelligence when AI is unavailable"""
         company_name = profile_data.get('basic_data', {}).get('name', 'Unknown Company')
-        
+        basic = profile_data.get('basic_data', {})
+        installed_base = customer_data.get('installed_base', []) or []
+        focus = basic.get('company_focus', 'steel production and downstream processing')
+        country = basic.get('hq_address', 'Unknown location')
+
+        equipment_counts = {}
+        oem_counts = {}
+        ages = []
+        for eq in installed_base:
+            eq_type = str(eq.get('equipment_type') or eq.get('equipment') or 'Unknown')
+            oem = str(eq.get('manufacturer') or eq.get('oem') or 'Unknown')
+            year = eq.get('year_of_startup') or eq.get('start_year') or eq.get('start_year_internal')
+            equipment_counts[eq_type] = equipment_counts.get(eq_type, 0) + 1
+            oem_counts[oem] = oem_counts.get(oem, 0) + 1
+            try:
+                if year is not None and str(year).strip():
+                    ages.append(max(0, datetime.now().year - int(float(year))))
+            except Exception:
+                pass
+
+        top_equipment = ', '.join(f"{k} ({v})" for k, v in sorted(equipment_counts.items(), key=lambda kv: kv[1], reverse=True)[:4]) or 'no verified equipment classes in the current dataset'
+        top_competitors = [oem for oem, _ in sorted(oem_counts.items(), key=lambda kv: kv[1], reverse=True) if oem and oem.lower() not in ('unknown', 'sms group', 'sms')][:4]
+        avg_age = round(sum(ages) / len(ages), 1) if ages else None
+
+        financial_health = (
+            f"Public, audited financial evidence is limited in the current data package. Working hypothesis: {company_name} appears to have a meaningful operating footprint in {focus}, which usually implies recurring maintenance and periodic capex requirements. "
+            f"For SMS, the key issue is not absolute size alone but whether the customer can fund furnace, caster, or rolling-mill modernization within a multi-year investment cycle. "
+            f"Before committing to a major capital pursuit, validate EBITDA resilience, leverage, and announced capex priorities against annual reports, filings, or management commentary."
+        )
+
+        recent_developments = (
+            f"The current dataset does not contain a fully curated recent-events file for {company_name}. However, the installed-base evidence suggests operational relevance around {top_equipment}. "
+            f"That means the most material developments to watch are expansion projects, shutdown extensions, decarbonization announcements, power-cost exposure, and OEM change-outs. "
+            f"These developments should be monitored through company releases, trade press, and, where available, internal SMS account intelligence."
+        )
+
+        market_position = (
+            f"{company_name} should be assessed as a process-specific steel customer rather than through generic corporate positioning. The current footprint indicates relevance in {focus}, with verified equipment concentrated in {top_equipment}. "
+            f"For SMS, market position matters insofar as it influences investment cadence, product-quality requirements, and appetite for modernization versus life-extension spending. "
+            f"The existing OEM mix ({', '.join(top_competitors) if top_competitors else 'limited non-SMS OEM visibility'}) is also important because it shapes switching friction and competitive displacement difficulty."
+        )
+
+        strategic_outlook = (
+            f"The most plausible strategic path is a combination of productivity, energy-efficiency, and decarbonization upgrades rather than greenfield expansion. "
+            f"If the average visible asset age is {avg_age} years, that points to a meaningful probability of phased modernization, especially where yield losses, maintenance intensity, or energy consumption have become commercially material. "
+            f"SMS should frame the opportunity around targeted bottleneck removal, digitalization, lifecycle extension where appropriate, and decarbonization-ready equipment packages instead of broad corporate messaging."
+        )
+
+        risk_assessment = (
+            f"Main risks include weak public financial transparency, uncertain capex timing, incumbent OEM lock-in, and potential mismatch between operational pain points and the current SMS entry point. "
+            f"Where installed assets are old, the opportunity is higher but so is execution complexity because outages, brownfield interfaces, and budget approvals become critical. "
+            f"A disciplined pursuit should therefore validate asset condition, production bottlenecks, decision-makers, and decarbonization mandates before escalating to full-scope proposals."
+        )
+
         return {
-            'financial_health': f'{company_name} operates in the industrial sector. Detailed financial analysis requires external data sources.',
-            'recent_developments': 'Recent developments tracking requires integration with news APIs and press release monitoring.',
-            'market_position': f'{company_name} is an established player in their market segment. Detailed competitive analysis pending.',
-            'strategic_outlook': 'Strategic outlook analysis requires current market data and industry trends.',
-            'risk_assessment': 'Standard industry risks apply: market volatility, technological change, regulatory compliance.',
-            'market_size': 'Market size analysis pending',
-            'competitors': [],
-            'growth_trends': 'Growth trend analysis requires historical market data',
-            'sources': ['CRM data']
+            'financial_health': financial_health,
+            'recent_developments': recent_developments,
+            'market_position': market_position,
+            'strategic_outlook': strategic_outlook,
+            'risk_assessment': risk_assessment,
+            'market_size': 'Steel market sizing should be derived from the customer product mix, regional steel demand, and disclosed capacity footprint rather than a generic company-level estimate.',
+            'competitors': top_competitors,
+            'growth_trends': 'Growth should be evaluated through replacement cycles, downstream product demand, energy-price exposure, and decarbonization investment pressure rather than headline volume assumptions.',
+            'sources': ['CRM/BCG installed base', 'Derived fallback heuristics']
         }
 
 

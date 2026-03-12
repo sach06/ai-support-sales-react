@@ -16,3 +16,12 @@ export const getRankedList = async ({ equipmentType, country, topK = 50, forceHe
     });
     return response.data.rankings;
 };
+
+export const retrainRankingModel = async (snapshotId = 'live_duckdb') => {
+    const response = await api.post('/ranking/retrain', null, {
+        params: {
+            snapshot_id: snapshotId
+        }
+    });
+    return response.data;
+};

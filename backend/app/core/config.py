@@ -31,6 +31,22 @@ class Settings:
 
     # Database
     DB_PATH = DATA_DIR / "sales_app.db"
+    INTERNAL_KNOWLEDGE_DIR = DATA_DIR / "internal_knowledge"
+    INTERNAL_KNOWLEDGE_NETWORK_ROOT = Path(
+        os.getenv("INTERNAL_KNOWLEDGE_NETWORK_ROOT", r"P:\SDE-TS-Customer-Projects")
+    )
+    INTERNAL_KNOWLEDGE_INDEX_TARGETS = tuple(
+        filter(
+            None,
+            (
+                part.strip()
+                for part in os.getenv(
+                    "INTERNAL_KNOWLEDGE_INDEX_TARGETS",
+                    "06_Allgemeine Informationen;Literatur;Cooperation Agreements;08_Projektmanagement;07_SCIFORMA/acceptence_reports;07_SCIFORMA/field_services_reports;07_SCIFORMA/timesheet_reports",
+                ).split(";")
+            ),
+        )
+    )
 
     # Model settings
     PREDICTION_MODEL_PATH = BASE_DIR / "models" / "sales_predictor.pkl"

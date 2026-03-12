@@ -284,6 +284,24 @@ class XGBPriorityModel:
         if "_site_city" in df.columns:
             cols_to_keep.append("_site_city")
             final_cols.append("site_city")
+
+        # Preserve internal-knowledge signals for explainability in API/UI.
+        knowledge_cols = [
+            "knowledge_doc_count",
+            "knowledge_best_match_score",
+            "knowledge_avg_match_score",
+            "knowledge_service_signal",
+            "knowledge_inspection_signal",
+            "knowledge_modernization_signal",
+            "knowledge_digital_signal",
+            "knowledge_decarbonization_signal",
+            "knowledge_project_signal",
+            "knowledge_quality_signal",
+        ]
+        for col in knowledge_cols:
+            if col in df.columns:
+                cols_to_keep.append(col)
+                final_cols.append(col)
             
         out = df[cols_to_keep].copy()
         out.columns = final_cols

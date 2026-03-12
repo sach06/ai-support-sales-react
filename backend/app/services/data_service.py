@@ -493,6 +493,11 @@ class DataIngestionService:
 
     def get_detailed_plant_data(self, equipment_type: str = "All", country: str = "All", region: str = "All", company_name: str = "All") -> pd.DataFrame:
         """Get granular plant data joined with CRM information"""
+        cache_key = f"detailed_plants|{equipment_type}|{country}|{region}|{company_name}"
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached.copy()
+
         if not self.conn:
             self.initialize_database()
         
@@ -569,7 +574,43 @@ class DataIngestionService:
                      if 'Region' in df.columns:
                         df = df[df['Region'].isna() | (df['Region'].fillna("").astype(str).str.strip() == "")]
                         self.add_log(f"Filtered to {len(df)} records for unassigned region")
-            
+
+            # Keep only the columns required by the dashboard and profile flows.
+            preferred_columns = [
+                "name",
+                "crm_name",
+                "company_internal",
+                "equipment_type",
+                "country",
+                "country_internal",
+                "Region",
+                "site_name",
+                "site_city",
+                "city_internal",
+                "City",
+                "capacity",
+                "capacity_internal",
+                "Nominal Capacity",
+                "status_internal",
+                "Status of the Plant",
+                "Matching Quality %",
+                "map_latitude",
+                "map_longitude",
+                "latitude",
+                "longitude",
+                "CEO",
+                "Number of Full time employees",
+                "manufacturer",
+                "oem",
+                "start_year_internal",
+                "start_year",
+                "year",
+            ]
+            existing_columns = [column for column in preferred_columns if column in df.columns]
+            if existing_columns:
+                df = df.loc[:, existing_columns].copy()
+
+            _cache_set(cache_key, df.copy())
             return df
         except Exception as e:
             self.add_log(f"Error fetching plant data: {e}")

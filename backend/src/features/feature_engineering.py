@@ -29,6 +29,8 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
+from app.services.internal_knowledge_service import internal_knowledge_service
+
 logger = logging.getLogger(__name__)
 
 CURRENT_YEAR = datetime.now().year
@@ -337,6 +339,41 @@ def extract_equipment_features(
         df["log_fte"]            = 0.0
         df["crm_projects_count"] = 0
 
+    knowledge_feature_cols = [
+        "knowledge_doc_count",
+        "knowledge_best_match_score",
+        "knowledge_avg_match_score",
+        "knowledge_service_signal",
+        "knowledge_inspection_signal",
+        "knowledge_modernization_signal",
+        "knowledge_digital_signal",
+        "knowledge_decarbonization_signal",
+        "knowledge_project_signal",
+        "knowledge_quality_signal",
+    ]
+    try:
+        knowledge_input = pd.DataFrame({
+            "company": df[company_col].fillna("") if company_col else "",
+            "equipment_type": df["equipment_type_raw"],
+            "country": df["country_raw"],
+        })
+        knowledge_features = internal_knowledge_service.build_training_feature_frame(
+            knowledge_input,
+            company_col="company",
+            equipment_col="equipment_type",
+            country_col="country",
+        )
+        if not knowledge_features.empty:
+            for col in knowledge_feature_cols:
+                df[col] = knowledge_features.get(col, 0.0).astype(float)
+        else:
+            for col in knowledge_feature_cols:
+                df[col] = 0.0
+    except Exception as exc:
+        logger.warning("Internal knowledge feature enrichment failed: %s", exc)
+        for col in knowledge_feature_cols:
+            df[col] = 0.0
+
     # ── Final feature columns ────────────────────────────────────────────────
     FEATURE_COLS = [
         "equipment_age",
@@ -346,6 +383,7 @@ def extract_equipment_features(
         "crm_rating_num",
         "log_fte",
         "crm_projects_count",
+        *knowledge_feature_cols,
     ]
 
     feat_df = df[FEATURE_COLS].copy()

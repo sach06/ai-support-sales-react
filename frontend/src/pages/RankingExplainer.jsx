@@ -19,6 +19,16 @@ const RankingExplainer = ({ rowData }) => {
         log_fte: 'Larger organizations tend to run broader capex programs and continuous improvement roadmaps.',
         equipment_type_enc: 'Equipment class is a structural predictor of lifecycle needs and technical intervention depth.',
         country_enc: 'Country context captures macro and policy effects that influence investment timing.',
+        knowledge_doc_count: 'More matched internal documents increase confidence that account context is evidence-backed.',
+        knowledge_best_match_score: 'A strong best-match score indicates direct project/service overlap in internal knowledge.',
+        knowledge_avg_match_score: 'Higher average relevance reflects consistent document alignment with the customer context.',
+        knowledge_service_signal: 'Service-heavy evidence points to maintenance contracts, spares demand, and service-led sales entry.',
+        knowledge_inspection_signal: 'Inspection evidence indicates technical touchpoints that can convert into modernization projects.',
+        knowledge_modernization_signal: 'Revamp-heavy signals suggest meaningful capex potential and modernization demand.',
+        knowledge_digital_signal: 'Digital references indicate opportunities in automation, optimization, and performance analytics.',
+        knowledge_decarbonization_signal: 'Decarbonization evidence supports positioning around EAF, emissions reduction, and green steel pathways.',
+        knowledge_project_signal: 'Project-level evidence increases confidence that active execution or commercial momentum exists.',
+        knowledge_quality_signal: 'Quality-related evidence may indicate corrective retrofit, reliability, and lifecycle service opportunities.',
     };
 
     // The backend ML service returns a JSON string inside the 'top_features' column for XGBoost
@@ -48,6 +58,16 @@ const RankingExplainer = ({ rowData }) => {
         return name.replace(/_/g, ' ')
             .replace(/\b\w/g, l => l.toUpperCase());
     };
+
+    const knowledgeSignals = [
+        { key: 'knowledge_service_signal', label: 'Service' },
+        { key: 'knowledge_inspection_signal', label: 'Inspection' },
+        { key: 'knowledge_modernization_signal', label: 'Modernization' },
+        { key: 'knowledge_digital_signal', label: 'Digital' },
+        { key: 'knowledge_decarbonization_signal', label: 'Decarbonization' },
+        { key: 'knowledge_project_signal', label: 'Project' },
+        { key: 'knowledge_quality_signal', label: 'Quality' },
+    ];
 
     return (
         <div className="ranking-explainer">
@@ -88,6 +108,28 @@ const RankingExplainer = ({ rowData }) => {
                         ))}
                     </ul>
                 )}
+
+                <h4 style={{ marginTop: '1.25rem' }}>Internal Evidence Signals</h4>
+                <div style={{ display: 'grid', gap: '0.5rem' }}>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                        Matched docs: {Math.round(Number(rowData.knowledge_doc_count || 0))} | Best match score: {Number(rowData.knowledge_best_match_score || 0).toFixed(1)}
+                    </div>
+                    {knowledgeSignals.map((signal) => {
+                        const value = Number(rowData[signal.key] || 0);
+                        return (
+                            <div key={signal.key} style={{ display: 'grid', gridTemplateColumns: '130px 1fr 50px', alignItems: 'center', gap: '0.5rem' }}>
+                                <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{signal.label}</span>
+                                <div style={{ background: 'rgba(31, 71, 136, 0.08)', height: '8px', borderRadius: '999px', overflow: 'hidden' }}>
+                                    <div style={{ width: `${Math.round(value * 100)}%`, height: '100%', background: 'linear-gradient(90deg, var(--primary), var(--secondary))' }} />
+                                </div>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{Math.round(value * 100)}%</span>
+                            </div>
+                        );
+                    })}
+                    {rowData.knowledge_summary && (
+                        <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>{rowData.knowledge_summary}</div>
+                    )}
+                </div>
 
                 <div className="action-button-container">
                     {/* Note: This logic would be hooked up to React Router in actual usage to redirect */}

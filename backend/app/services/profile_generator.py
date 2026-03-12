@@ -3,6 +3,7 @@ AI Service for generating customer profiles (Steckbrief) using LLM
 """
 import json
 import numpy as np
+from datetime import date, datetime
 from typing import Dict, Optional
 from openai import AzureOpenAI, OpenAI
 from app.core.config import settings
@@ -14,6 +15,8 @@ class NumpyEncoder(json.JSONEncoder):
             return obj.tolist()
         if isinstance(obj, np.generic):
             return obj.item()
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
         return super(NumpyEncoder, self).default(obj)
 
 
@@ -118,9 +121,60 @@ class ProfileGeneratorService:
 
         if 'installed_base' in customer_data:
             ib = customer_data['installed_base']
+            equipment_counts = {}
+            oem_counts = {}
+            status_counts = {}
+            countries = set()
+            startup_years = []
+            capacities = []
+
+            for item in ib:
+                equipment = str(item.get('equipment') or item.get('equipment_type') or 'Unknown').strip()
+                oem = str(item.get('manufacturer') or item.get('oem') or 'Unknown').strip()
+                status = str(item.get('status') or item.get('status_internal') or 'Unknown').strip()
+                country = str(item.get('country') or item.get('country_internal') or '').strip()
+                startup = item.get('start_year_internal') or item.get('start_year') or item.get('year')
+                capacity = item.get('capacity_internal') or item.get('capacity')
+
+                equipment_counts[equipment] = equipment_counts.get(equipment, 0) + 1
+                oem_counts[oem] = oem_counts.get(oem, 0) + 1
+                status_counts[status] = status_counts.get(status, 0) + 1
+                if country:
+                    countries.add(country)
+                try:
+                    if startup is not None and str(startup).strip():
+                        startup_years.append(int(float(startup)))
+                except Exception:
+                    pass
+                try:
+                    if capacity is not None and str(capacity).strip():
+                        capacities.append(float(capacity))
+                except Exception:
+                    pass
+
+            top_equipment = ', '.join(
+                f"{name} ({count})" for name, count in sorted(equipment_counts.items(), key=lambda kv: kv[1], reverse=True)[:8]
+            ) or 'Unknown'
+            top_oems = ', '.join(
+                f"{name} ({count})" for name, count in sorted(oem_counts.items(), key=lambda kv: kv[1], reverse=True)[:6]
+            ) or 'Unknown'
+            status_mix = ', '.join(
+                f"{name} ({count})" for name, count in sorted(status_counts.items(), key=lambda kv: kv[1], reverse=True)
+            ) or 'Unknown'
+
             context_parts.append(
-                f"INSTALLED BASE:\n{len(ib)} equipment records (sample of first 5 shown)\n"
-                + json.dumps(ib[:5], indent=2, cls=NumpyEncoder)
+                "INSTALLED BASE SUMMARY:\n"
+                f"  Equipment records: {len(ib)}\n"
+                f"  Countries represented: {', '.join(sorted(countries)) if countries else 'Unknown'}\n"
+                f"  Top equipment types: {top_equipment}\n"
+                f"  OEM mix: {top_oems}\n"
+                f"  Operational status mix: {status_mix}\n"
+                f"  Oldest startup year: {min(startup_years) if startup_years else 'Unknown'}\n"
+                f"  Newest startup year: {max(startup_years) if startup_years else 'Unknown'}\n"
+                f"  Total nominal capacity (sum of available values): {round(sum(capacities), 1) if capacities else 'Unknown'}\n"
+                f"  Average nominal capacity: {round(sum(capacities) / len(capacities), 1) if capacities else 'Unknown'}\n"
+                "INSTALLED BASE SAMPLE (first 8 rows):\n"
+                + json.dumps(ib[:8], indent=2, cls=NumpyEncoder)
             )
 
         # ── Priority ranking ──────────────────────────────────────────────────
@@ -182,8 +236,23 @@ class ProfileGeneratorService:
         # ── Company news ──────────────────────────────────────────────────────
         if extra.get('company_news'):
             news = extra['company_news']
-            headlines = '; '.join(item.get('title', '') for item in news[:5])
-            context_parts.append(f"RECENT COMPANY NEWS:\n{headlines}")
+            formatted_news = []
+            for item in news[:6]:
+                formatted_news.append(
+                    f"- {item.get('title', 'Untitled')} | source={item.get('source', 'Unknown')} | date={item.get('published_date', 'Unknown')} | url={item.get('url', '')}\n"
+                    f"  Summary: {item.get('description', '')}"
+                )
+            context_parts.append("RECENT COMPANY NEWS:\n" + "\n".join(formatted_news))
+
+        if extra.get('company_overview'):
+            overview = extra['company_overview']
+            context_parts.append(
+                "COMPANY OVERVIEW:\n"
+                + json.dumps(overview, indent=2, cls=NumpyEncoder)
+            )
+
+        if extra.get('internal_knowledge'):
+            context_parts.append(f"INTERNAL SMS KNOWLEDGE:\n{extra['internal_knowledge']}")
 
         # ── Web research ──────────────────────────────────────────────────────
         if web_data:
@@ -203,7 +272,16 @@ METHODOLOGY & CONSTRAINTS:
 2. If exact data is unavailable, clearly state assumptions and use conservative industry benchmarks based on your expert knowledge.
 3. Do not hallucinate proprietary datasets; instead, infer logically and label as industry-based estimation.
 4. Always analyze from the perspective of SMS group's equipment portfolio, decarbonization strategy, and competitive positioning vs competitors (Danieli, Primetals, Fives).
-5. Output MUST be in the exact JSON schema provided below. Format long text areas with '\n\n' for paragraph breaks.
+    5. If INTERNAL SMS KNOWLEDGE is present, prioritise it over generic web assumptions and explicitly reflect SMS terminology, product logic, and installed-base implications.
+    6. Output MUST be in the exact JSON schema provided below. Format long text areas with '\n\n' for paragraph breaks.
+
+    WRITING RULES:
+    - Avoid empty phrases such as "established player", "analysis pending", "strong market position", or "well positioned" unless they are immediately supported by evidence.
+    - Every major section must connect factual evidence to business implications for SMS group.
+    - Use steel-industry-specific language where relevant: BF/BOF, EAF, caster, rolling mill, downstream finishing, strip quality, yield, refractory wear, decarbonization, energy intensity, maintenance shutdowns, installed-base modernization.
+    - Explain what the evidence means commercially: capex readiness, modernization urgency, OEM lock-in, operational bottlenecks, service potential, digitalization potential, and decarbonization fit.
+    - Where evidence is thin, write "Working hypothesis:" followed by the assumption and what data would validate it.
+    - References must be concrete, traceable, and preferably include source name plus URL. Distinguish public sources from internal SMS knowledge where applicable.
 
 DATA SOURCES:
 {context}
@@ -239,10 +317,10 @@ Generate a JSON object with the following structure. Pay extraordinary attention
         }}
     ],
     "priority_analysis": {{
-        "priority_score": "Score (0-100)",
+        "priority_score": "Priority likelihood / confidence (0-100)",
         "priority_rank": "Rank",
-        "company_explainer": "PRIORITY RANKING ANALYSIS: Detailed 5-paragraph deep dive. Analyze operations, country footprint, site relevance, financial strength, and strategic fit for SMS group. Conclude what this ranking means for resource allocation.",
-        "key_opportunity_drivers": "KEY OPPORTUNITY DRIVERS (5-7 paragraphs): Elaborate on large installed base and modernization needs, alignment with green steel / SMS decarbonization portfolio, and historical relationship upselling potential.",
+        "company_explainer": "PRIORITY RANKING ANALYSIS: Detailed 5-paragraph deep dive. Analyze operations, country footprint, site relevance, financial strength, and strategic fit for SMS group. Explicitly name the top 5 most important priority drivers when evidence is available and explain each one in commercial and metallurgical terms. Conclude what this ranking means for resource allocation.",
+        "key_opportunity_drivers": "KEY OPPORTUNITY DRIVERS (5-7 paragraphs): Elaborate on installed base and modernization needs, alignment with green steel / SMS decarbonization portfolio, OEM displacement opportunities, and historical relationship upselling potential.",
         "engagement_recommendation": "ENGAGEMENT RECOMMENDATION (5-7 paragraphs): Elaborate on urgency, site prioritization (e.g. key meltshops or rolling mills), and specific pilot solutions to introduce."
     }},
     "history": {{
@@ -283,7 +361,7 @@ Generate a JSON object with the following structure. Pay extraordinary attention
 CRITICAL INSTRUCTIONS:
 - You must write extensively. The entire report should total 10-15 pages of text when combined.
 - Use '\n\n' for paragraph spacing in long strings to ensure frontend readability.
-- Deliver executive, BCG/McKinsey-level prose. No marketing fluff, no emojis."""
+- Deliver executive, evidence-led SMS-level analysis. No marketing fluff, no emojis, no placeholder phrases."""
     
     def _generate_fallback_profile(self, customer_data: Dict) -> Dict:
         """Generate a basic profile without AI when API is not available"""

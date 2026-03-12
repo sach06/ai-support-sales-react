@@ -60,6 +60,28 @@ const RankingTable = ({ data, onRowSelect, selectedId, pinnedCompany }) => {
             accessorKey: 'equipment_type'
         },
         {
+            header: 'Internal Evidence',
+            accessorKey: 'knowledge_doc_count',
+            cell: info => {
+                const docs = Math.round(Number(info.getValue() || 0));
+                const best = Number(info.row.original.knowledge_best_match_score || 0);
+                const theme = info.row.original.knowledge_summary || 'No internal evidence';
+                return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', maxWidth: '220px' }}>
+                        <span style={{ fontWeight: 600, color: docs > 0 ? 'var(--primary)' : 'var(--text-secondary)' }}>
+                            {docs > 0 ? `${docs} docs` : 'No docs'}
+                        </span>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                            Best match: {best.toFixed(1)}
+                        </span>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                            {theme}
+                        </span>
+                    </div>
+                );
+            }
+        },
+        {
             header: 'Opportunity Type & Details',
             accessorKey: 'opportunity_type',
             cell: info => (

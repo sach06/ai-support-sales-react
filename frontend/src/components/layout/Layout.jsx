@@ -3,7 +3,7 @@ import { useLocation, Link, Outlet } from 'react-router-dom';
 import { useFilterStore } from '../../store/useFilterStore';
 import { useDataStore } from '../../store/useDataStore';
 import { useQuery } from '@tanstack/react-query';
-import { getCountries, getRegions, getEquipmentTypes, getCustomers, getCompanyNames, loadData, getLoadProgress } from '../../api/dataApi';
+import { getCountries, getRegions, getEquipmentTypes, getCustomers, getCompanyNames, loadData, getLoadProgress, getDataStatus } from '../../api/dataApi';
 import api from '../../api/client';
 import smsLogo from '../../sms logo.png';
 import './Layout.css';
@@ -63,14 +63,39 @@ const Layout = () => {
     useEffect(() => {
         const checkStatus = async () => {
             try {
-                const res = await api.get('/data/status');
-                setDataLoaded(res.data.loaded);
+                const status = await getDataStatus();
+                const progress = await getLoadProgress().catch(() => null);
+                const isReloading = Boolean(progress?.running);
+
+                if (progress) {
+                    setLoadProgress(progress);
+                    setLoadingDb(isReloading);
+                }
+
+                setDataLoaded(Boolean(status.loaded) && !isReloading);
+
+                if (isReloading) {
+                    startPolling();
+                }
             } catch (error) {
-                console.error("Failed to fetch data status:", error);
+                try {
+                    const progress = await getLoadProgress();
+                    const loadCompleted = Boolean(progress.done && !progress.error);
+                    setLoadProgress(progress);
+                    setLoadingDb(Boolean(progress.running));
+                    setDataLoaded(loadCompleted && !progress.running);
+
+                    if (progress.running) {
+                        startPolling();
+                    }
+                } catch (progressError) {
+                    console.error("Failed to fetch data status:", progressError);
+                    setDataLoaded(false);
+                }
             }
         };
         checkStatus();
-    }, [setDataLoaded]);
+    }, [setDataLoaded, startPolling]);
 
     // Progress polling
     const stopPolling = useCallback(() => {
@@ -119,6 +144,7 @@ const Layout = () => {
 
     const handleLoadData = async () => {
         setLoadingDb(true);
+        setDataLoaded(false);
         setLoadProgress({ running: true, step: 'Starting...', percent: 0, done: false, error: null, logs: [] });
         clearLogs();
         try {

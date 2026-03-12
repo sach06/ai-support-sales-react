@@ -11,6 +11,7 @@ const ProfileSections = ({ profile }) => {
         { id: 'history', label: 'Background & History' },
         { id: 'financial', label: 'Financial Status' },
         { id: 'strategy', label: 'Customer Strategy' },
+        { id: 'evidence', label: 'Internal Evidence' },
     ];
 
     const renderBasicData = () => (
@@ -188,8 +189,8 @@ const ProfileSections = ({ profile }) => {
                     borderLeft: '4px solid var(--primary)',
                     marginBottom: '2rem'
                 }}>
-                    <h4 style={{ marginTop: 0, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span>🎯</span> AI Ranking Deep Research Explainer
+                    <h4 style={{ marginTop: 0, color: 'var(--primary)' }}>
+                        Priority Ranking Assessment
                     </h4>
                     <div className="explainer-text" style={{
                         lineHeight: '1.6',
@@ -224,6 +225,92 @@ const ProfileSections = ({ profile }) => {
         </div>
     );
 
+    const renderEvidence = () => {
+        const evidence = profile?.internal_knowledge_evidence || [];
+        const signals = profile?.internal_knowledge_signals || {};
+        const references = profile?.references || [];
+        const rankedSignals = Object.entries(signals)
+            .filter(([key]) => key.endsWith('_signal'))
+            .sort((a, b) => b[1] - a[1]);
+
+        return (
+            <div className="tab-content evidence-stack">
+                <div className="strategy-section">
+                    <h4>Evidence Signals</h4>
+                    <div className="evidence-signal-grid">
+                        <div className="evidence-signal-card">
+                            <span className="signal-label">Matched documents</span>
+                            <strong>{Math.round(signals.knowledge_doc_count || 0)}</strong>
+                        </div>
+                        <div className="evidence-signal-card">
+                            <span className="signal-label">Best match score</span>
+                            <strong>{Math.round(signals.knowledge_best_match_score || 0)}</strong>
+                        </div>
+                        <div className="evidence-signal-card">
+                            <span className="signal-label">Average match score</span>
+                            <strong>{(signals.knowledge_avg_match_score || 0).toFixed(1)}</strong>
+                        </div>
+                    </div>
+                    {rankedSignals.length > 0 && (
+                        <div className="signal-bars">
+                            {rankedSignals.map(([key, value]) => (
+                                <div className="signal-row" key={key}>
+                                    <span className="signal-name">{key.replace('knowledge_', '').replace('_signal', '')}</span>
+                                    <div className="signal-bar-track">
+                                        <div className="signal-bar-fill" style={{ width: `${Math.round((value || 0) * 100)}%` }} />
+                                    </div>
+                                    <span className="signal-value">{Math.round((value || 0) * 100)}%</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                <div className="strategy-section">
+                    <h4>Matched Internal Documents</h4>
+                    {evidence.length === 0 ? (
+                        <p className="empty-msg">No internal evidence has been matched for this profile yet.</p>
+                    ) : (
+                        <div className="evidence-card-list">
+                            {evidence.map((item, index) => (
+                                <article className="evidence-card" key={`${item.source_name}-${index}`}>
+                                    <div className="evidence-card-header">
+                                        <div>
+                                            <h5>{item.source_name}</h5>
+                                            <p className="evidence-folder">{item.folder}</p>
+                                        </div>
+                                        <span className="evidence-score">Match {item.score}</span>
+                                    </div>
+                                    {item.topics?.length > 0 && (
+                                        <div className="evidence-topics">
+                                            {item.topics.map((topic) => (
+                                                <span className="evidence-topic" key={topic}>{topic}</span>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <p className="evidence-snippet">{item.snippet}</p>
+                                </article>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                <div className="strategy-section">
+                    <h4>Reference Trail</h4>
+                    {references.length === 0 ? (
+                        <p className="empty-msg">No source references are attached to this profile.</p>
+                    ) : (
+                        <div className="reference-list">
+                            {references.map((reference, index) => (
+                                <div className="reference-item" key={`${reference}-${index}`}>{reference}</div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
     return (
         <div className="profile-sections">
             <div className="tabs-header">
@@ -244,6 +331,7 @@ const ProfileSections = ({ profile }) => {
                 {activeTab === 'history' && renderHistory()}
                 {activeTab === 'financial' && renderFinancial()}
                 {activeTab === 'strategy' && renderStrategy()}
+                {activeTab === 'evidence' && renderEvidence()}
             </div>
         </div>
     );

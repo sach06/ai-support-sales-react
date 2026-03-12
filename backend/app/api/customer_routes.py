@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks, Path as URLPath, 
 from typing import Optional, Dict, Any
 import sys
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Ensure the backend root is on the path so services resolve correctly
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -14,6 +15,7 @@ from app.services.profile_generator import profile_generator
 from app.services.financial_service import financial_service
 import app.services.historical_service as historical_service
 from app.services.web_enrichment_service import web_enrichment_service
+from app.services.internal_knowledge_service import internal_knowledge_service
 from app.utils.json_utils import df_to_json_safe, json_safe_sanitize
 import pandas as pd
 import json
@@ -88,6 +90,72 @@ def generate_steckbrief(customer_name: str = URLPath(...)):
         # Build comprehensive context for AI via historical_service
         ib_sum = historical_service.get_ib_summary(actual_name)
         crm_hist = historical_service.get_yearly_performance(actual_name)
+
+        # Determine country for intelligence gathering
+        country_value = crm_data.get('country')
+        if (not country_value or str(country_value).lower() in ('nan', 'none', '')) and not installed_data.empty:
+            first_country_cols = [c for c in ['country_internal', 'country', 'Country'] if c in installed_data.columns]
+            if first_country_cols:
+                country_value = installed_data.iloc[0].get(first_country_cols[0])
+
+        equipment_types = []
+        if not installed_data.empty and 'equipment_type' in installed_data.columns:
+            equipment_types = [str(v) for v in installed_data['equipment_type'].dropna().astype(str).unique().tolist()[:8]]
+        
+        # ── PARALLELIZED WEB ENRICHMENT ────────────────────────────────────
+        # Run web API calls concurrently instead of sequentially
+        company_overview = None
+        company_news = None
+        country_intelligence = {}
+        knowledge_analysis = None
+        
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            # Submit all concurrent tasks
+            future_overview = executor.submit(web_enrichment_service.get_company_overview, actual_name)
+            future_news = executor.submit(web_enrichment_service.get_recent_news, actual_name, 6)
+            future_country_intel = executor.submit(
+                web_enrichment_service.get_country_intelligence,
+                str(country_value) if country_value else None
+            ) if country_value else None
+            future_knowledge = executor.submit(
+                internal_knowledge_service.analyze_customer,
+                actual_name,
+                equipment_types,
+                str(country_value) if country_value else None
+            )
+            
+            # Collect results as they complete
+            try:
+                company_overview = future_overview.result(timeout=30)
+            except Exception as e:
+                print(f"Warning: Failed to fetch company overview: {e}")
+                company_overview = None
+            
+            try:
+                company_news = future_news.result(timeout=30)
+            except Exception as e:
+                print(f"Warning: Failed to fetch company news: {e}")
+                company_news = None
+            
+            if future_country_intel:
+                try:
+                    country_intelligence = future_country_intel.result(timeout=30) or {}
+                except Exception as e:
+                    print(f"Warning: Failed to fetch country intelligence: {e}")
+                    country_intelligence = {}
+            
+            try:
+                knowledge_analysis = future_knowledge.result(timeout=60)
+            except Exception as e:
+                print(f"Warning: Failed to analyze customer knowledge: {e}")
+                knowledge_analysis = {
+                    "context": "",
+                    "references": [],
+                    "evidence": [],
+                    "signals": internal_knowledge_service._empty_signals()
+                }
+        
+        internal_knowledge = knowledge_analysis.get("context", "")
         
         # Build comprehensive dict
         full_data = {
@@ -99,8 +167,31 @@ def generate_steckbrief(customer_name: str = URLPath(...)):
         
         extra_context = {
             "ib_summary": _safe_json(ib_sum),
-            "crm_history": _safe_json(crm_hist)
+            "crm_history": _safe_json(crm_hist),
+            "company_overview": _safe_json(company_overview),
+            "company_news": _safe_json(company_news),
+            "country_intelligence": _safe_json(country_intelligence),
+            "internal_knowledge": internal_knowledge,
         }
+
+        web_context_parts = []
+        if company_overview:
+            web_context_parts.append(
+                f"Company overview source: {company_overview.get('source_url', 'Unknown')}\n"
+                f"Description: {company_overview.get('description', 'N/A')}\n"
+                f"Headquarters: {company_overview.get('headquarters', 'N/A')}\n"
+                f"Founded: {company_overview.get('founded', 'N/A')}\n"
+                f"Industry: {company_overview.get('industry', 'N/A')}\n"
+                f"Employees: {company_overview.get('employee_count', 'N/A')}"
+            )
+        if company_news:
+            web_context_parts.append(
+                "Recent public news:\n" + "\n".join(
+                    f"- {item.get('title', 'Untitled')} | {item.get('source', 'Unknown')} | {item.get('published_date', 'Unknown')} | {item.get('url', '')}"
+                    for item in company_news[:6]
+                )
+            )
+        web_data = "\n\n".join(web_context_parts) if web_context_parts else None
         
         if not installed_data.empty:
             full_data["installed_base"] = _safe_json(installed_data)
@@ -108,8 +199,21 @@ def generate_steckbrief(customer_name: str = URLPath(...)):
         # Call the LLM generator with extra context from Axel's repos
         profile = profile_generator.generate_profile(
             customer_data=full_data,
+            web_data=web_data,
             extra_context=extra_context
         )
+
+        internal_refs = knowledge_analysis.get("references", [])
+        if internal_refs:
+            profile.setdefault('references', [])
+            if isinstance(profile.get('references'), list):
+                profile['references'].extend([r for r in internal_refs if r not in profile['references']])
+
+        if knowledge_analysis.get("evidence"):
+            profile["internal_knowledge_evidence"] = knowledge_analysis["evidence"]
+        if knowledge_analysis.get("signals"):
+            profile["internal_knowledge_signals"] = knowledge_analysis["signals"]
+        profile["internal_knowledge_status"] = internal_knowledge_service.get_status()
         
         return {"profile": profile}
     except Exception as e:

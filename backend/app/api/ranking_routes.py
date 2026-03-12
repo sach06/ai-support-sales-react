@@ -1,7 +1,7 @@
 """
 Ranking API Routes — wraps MLRankingService for React frontend consumption.
 """
-from fastapi import APIRouter, Query, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
 import sys
 from pathlib import Path
@@ -14,6 +14,34 @@ from app.utils.json_utils import df_to_json_safe
 import json
 
 router = APIRouter()
+
+
+def _top_knowledge_theme(record: dict) -> str:
+    candidates = {
+        "service": float(record.get("knowledge_service_signal", 0) or 0),
+        "inspection": float(record.get("knowledge_inspection_signal", 0) or 0),
+        "modernization": float(record.get("knowledge_modernization_signal", 0) or 0),
+        "digital": float(record.get("knowledge_digital_signal", 0) or 0),
+        "decarbonization": float(record.get("knowledge_decarbonization_signal", 0) or 0),
+        "project": float(record.get("knowledge_project_signal", 0) or 0),
+        "quality": float(record.get("knowledge_quality_signal", 0) or 0),
+    }
+    return max(candidates, key=candidates.get) if candidates else "service"
+
+
+def _knowledge_feature_dict(record: dict) -> dict:
+    return {
+        "knowledge_doc_count": float(record.get("knowledge_doc_count", 0) or 0),
+        "knowledge_best_match_score": float(record.get("knowledge_best_match_score", 0) or 0),
+        "knowledge_avg_match_score": float(record.get("knowledge_avg_match_score", 0) or 0),
+        "knowledge_service_signal": float(record.get("knowledge_service_signal", 0) or 0),
+        "knowledge_inspection_signal": float(record.get("knowledge_inspection_signal", 0) or 0),
+        "knowledge_modernization_signal": float(record.get("knowledge_modernization_signal", 0) or 0),
+        "knowledge_digital_signal": float(record.get("knowledge_digital_signal", 0) or 0),
+        "knowledge_decarbonization_signal": float(record.get("knowledge_decarbonization_signal", 0) or 0),
+        "knowledge_project_signal": float(record.get("knowledge_project_signal", 0) or 0),
+        "knowledge_quality_signal": float(record.get("knowledge_quality_signal", 0) or 0),
+    }
 
 @router.get("/list")
 def get_ranked_list(
@@ -39,7 +67,17 @@ def get_ranked_list(
             "crm_projects_count": "A deeper project history with the account signals proven execution trust and cross-sell potential.",
             "log_fte": "Larger organizations often have broader capex programs and better ability to fund major revamp projects.",
             "equipment_type_enc": "Certain equipment classes are structurally more likely to require upgrades based on lifecycle and process criticality.",
-            "country_enc": "Country context captures structural market effects such as policy pressure, cost base, and investment cycles."
+            "country_enc": "Country context captures structural market effects such as policy pressure, cost base, and investment cycles.",
+            "knowledge_doc_count": "A larger body of internal project and service references indicates stronger institutional knowledge and more proven touchpoints.",
+            "knowledge_best_match_score": "Strong document matches suggest direct evidence linking the account to SMS project, quality, or service history.",
+            "knowledge_avg_match_score": "Consistently relevant internal evidence raises confidence that the account is strategically actionable.",
+            "knowledge_service_signal": "Service-heavy internal evidence points to spare parts, maintenance, and long-term service potential.",
+            "knowledge_inspection_signal": "Inspection and acceptance evidence indicates recent technical interaction and a route into follow-on upgrades.",
+            "knowledge_modernization_signal": "Upgrade and revamp references point to capex appetite and modernization demand.",
+            "knowledge_digital_signal": "Automation and digital references indicate optimization scope beyond mechanical replacement.",
+            "knowledge_decarbonization_signal": "Decarbonization language signals likely relevance for EAF, electrification, and green-steel positioning.",
+            "knowledge_project_signal": "Project-document density indicates active execution context or recent commercial traction.",
+            "knowledge_quality_signal": "Quality or issue references can indicate recovery work, retrofit demand, or service-led re-entry opportunities."
         }
 
         model_meta = ml_ranking_service.get_model_metadata() if not force_heuristic else {}
@@ -72,6 +110,22 @@ def get_ranked_list(
 
             if not rec.get("top_features"):
                 rec["top_features"] = json.dumps(default_top_feature_dict)
+            if float(rec.get("knowledge_doc_count", 0) or 0) > 0:
+                enriched = _knowledge_feature_dict(rec)
+                top_theme = _top_knowledge_theme(rec)
+                rec["top_features"] = json.dumps({
+                    top_theme and f"knowledge_{top_theme}_signal": max(
+                        float(rec.get(f"knowledge_{top_theme}_signal", 0) or 0),
+                        0.01,
+                    ),
+                    **enriched,
+                })
+                rec["knowledge_summary"] = (
+                    f"{int(rec.get('knowledge_doc_count', 0) or 0)} matched internal docs; "
+                    f"dominant theme: {top_theme}."
+                )
+            else:
+                rec["knowledge_summary"] = "No matched internal evidence for this account."
             rec["driver_explanations"] = feature_explanations
                 
         from app.utils.json_utils import json_safe_sanitize
@@ -99,5 +153,14 @@ def get_equipment_types():
 def get_countries():
     try:
         return {"countries": ml_ranking_service.get_countries()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/retrain")
+def retrain_model(snapshot_id: str = Query(default="live_duckdb")):
+    try:
+        result = ml_ranking_service.retrain_model(data_snapshot_id=snapshot_id)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

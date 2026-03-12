@@ -1,7 +1,7 @@
 {
   "model_version": "xgb_priority_v1",
-  "trained_at": "2026-02-24T14:31:36.454783",
-  "data_snapshot_id": "20260224_143116",
+  "trained_at": "2026-03-12T13:36:32.629470",
+  "data_snapshot_id": "live_duckdb_internal_knowledge",
   "feature_columns": [
     "equipment_age",
     "is_sms_oem",
@@ -9,7 +9,17 @@
     "country_enc",
     "crm_rating_num",
     "log_fte",
-    "crm_projects_count"
+    "crm_projects_count",
+    "knowledge_doc_count",
+    "knowledge_best_match_score",
+    "knowledge_avg_match_score",
+    "knowledge_service_signal",
+    "knowledge_inspection_signal",
+    "knowledge_modernization_signal",
+    "knowledge_digital_signal",
+    "knowledge_decarbonization_signal",
+    "knowledge_project_signal",
+    "knowledge_quality_signal"
   ],
   "xgb_params": {
     "objective": "binary:logistic",
@@ -29,9 +39,9 @@
     "verbosity": 0
   },
   "metrics": {
-    "auc_cv_mean": 0.8122450088358576,
-    "auc_cv_std": 0.011193150708574554,
-    "auc_test": 0.8346363776797514,
+    "auc_cv_mean": 0.828545089161835,
+    "auc_cv_std": 0.008712005346794725,
+    "auc_test": 0.8520536894320385,
     "precision_at_10": 1.0,
     "ndcg_at_10": 1.0,
     "n_estimators_used": 500,
@@ -40,12 +50,22 @@
     "pos_rate_train": 0.5864308913749549
   },
   "feature_importance": {
-    "country_enc": 0.4033467173576355,
-    "equipment_type_enc": 0.3494344651699066,
-    "equipment_age": 0.24721886217594147,
-    "is_sms_oem": 0.0,
+    "knowledge_best_match_score": 0.2731444835662842,
+    "knowledge_avg_match_score": 0.23691485822200775,
+    "country_enc": 0.09738977998495102,
+    "equipment_type_enc": 0.09248774498701096,
+    "knowledge_doc_count": 0.08737070113420486,
+    "knowledge_service_signal": 0.08236084133386612,
+    "knowledge_project_signal": 0.06624995917081833,
+    "equipment_age": 0.06408165395259857,
     "crm_rating_num": 0.0,
     "log_fte": 0.0,
-    "crm_projects_count": 0.0
+    "crm_projects_count": 0.0,
+    "is_sms_oem": 0.0,
+    "knowledge_inspection_signal": 0.0,
+    "knowledge_modernization_signal": 0.0,
+    "knowledge_digital_signal": 0.0,
+    "knowledge_decarbonization_signal": 0.0,
+    "knowledge_quality_signal": 0.0
   }
 }

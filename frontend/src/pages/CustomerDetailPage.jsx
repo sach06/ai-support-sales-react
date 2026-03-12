@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useFilterStore } from '../store/useFilterStore';
-import { getCustomerProfile, generateProfile } from '../api/customerApi';
+import { getCustomerProfile, generateProfile, getInternalKnowledgeStatus, reindexInternalKnowledge } from '../api/customerApi';
 import { exportDocx, exportPdf } from '../api/exportApi';
 
 import ProfileSections from './ProfileSections';
@@ -15,13 +15,20 @@ const CustomerDetailPage = () => {
     const [profileData, setProfileData] = useState(null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
+    const [isReindexing, setIsReindexing] = useState(false);
     const [errorMsg, setErrorMsg] = useState(null);
+    const [knowledgeActionMsg, setKnowledgeActionMsg] = useState(null);
 
     // Fetch initial basic data from CRM/BCG
     const { data: rawCustomerData, isLoading: isLoadingRaw, isError: isErrorRaw } = useQuery({
         queryKey: ['raw_customer', companyName, filters.country, filters.region, filters.equipmentType],
         queryFn: () => getCustomerProfile(companyName, filters),
         enabled: companyName !== 'All',
+    });
+
+    const { data: knowledgeStatus, refetch: refetchKnowledgeStatus } = useQuery({
+        queryKey: ['internal_knowledge_status'],
+        queryFn: getInternalKnowledgeStatus,
     });
 
     const handleGenerateProfile = async () => {
@@ -35,6 +42,21 @@ const CustomerDetailPage = () => {
             setErrorMsg("Failed to generate AI profile. Ensure Azure OpenAI or OpenAI keys are configured.");
         } finally {
             setIsGenerating(false);
+        }
+    };
+
+    const handleReindexKnowledge = async () => {
+        setIsReindexing(true);
+        setKnowledgeActionMsg(null);
+        try {
+            const summary = await reindexInternalKnowledge();
+            await refetchKnowledgeStatus();
+            setKnowledgeActionMsg(`Indexed ${summary.document_count || 0} internal documents. Regenerate the profile to apply the latest evidence.`);
+        } catch (err) {
+            console.error('Failed to reindex internal knowledge:', err);
+            setKnowledgeActionMsg('Failed to reindex internal knowledge. Check backend access to the P: drive.');
+        } finally {
+            setIsReindexing(false);
         }
     };
 
@@ -94,6 +116,14 @@ const CustomerDetailPage = () => {
                 </div>
 
                 <div className="header-actions">
+                    <button
+                        className="btn-secondary btn-knowledge"
+                        onClick={handleReindexKnowledge}
+                        disabled={isReindexing}
+                    >
+                        {isReindexing ? 'Reindexing Knowledge...' : 'Reindex Internal Knowledge'}
+                    </button>
+
                     {!hasProfile ? (
                         <button
                             className="btn-primary btn-generate"
@@ -127,6 +157,18 @@ const CustomerDetailPage = () => {
             {errorMsg && (
                 <div className="error-banner">
                     {errorMsg}
+                </div>
+            )}
+
+            {(knowledgeActionMsg || knowledgeStatus) && (
+                <div className="knowledge-status-banner">
+                    <div>
+                        <strong>Internal knowledge index:</strong>{' '}
+                        {knowledgeActionMsg || `${knowledgeStatus?.manifest_rows || 0} documents indexed`}
+                    </div>
+                    {knowledgeStatus?.last_indexed_at && (
+                        <div className="knowledge-status-meta">Last index: {knowledgeStatus.last_indexed_at}</div>
+                    )}
                 </div>
             )}
 

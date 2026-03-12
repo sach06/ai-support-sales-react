@@ -129,13 +129,14 @@ def _run_load_data():
 # ── /api/data/load ────────────────────────────────────────────────────────────
 
 @router.post("/load")
-def load_data(background_tasks: BackgroundTasks):
+def load_data():
     """Initialize database and load all available data files in background."""
     with _progress_lock:
         if _load_progress["running"]:
             return {"success": False, "message": "Data loading already in progress"}
 
-    background_tasks.add_task(_run_load_data)
+    worker = threading.Thread(target=_run_load_data, name="data-load-worker", daemon=True)
+    worker.start()
     return {"success": True, "message": "Data loading started", "async": True}
 
 

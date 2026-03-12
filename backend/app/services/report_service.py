@@ -73,13 +73,13 @@ class ReportService:
         metallurgy = profile_data.get('metallurgical_insights', {})
         
         sections = [
-            ('💰 Financial Health', intel.get('financial_health')),
-            ('📰 Recent Developments', intel.get('recent_developments')),
-            ('📊 Market Position', intel.get('market_position')),
-            ('🎯 Strategic Outlook', intel.get('strategic_outlook')),
-            ('⚠️ Risk Assessment', intel.get('risk_assessment')),
-            ('🛠️ Technical Insights', metallurgy.get('modernization_potential')),
-            ('💡 Sales Strategy', strategy.get('suggested_next_steps'))
+            ('Financial Health', intel.get('financial_health')),
+            ('Recent Developments', intel.get('recent_developments')),
+            ('Market Position', intel.get('market_position')),
+            ('Strategic Outlook', intel.get('strategic_outlook')),
+            ('Risk Assessment', intel.get('risk_assessment')),
+            ('Technical Insights', metallurgy.get('modernization_potential')),
+            ('Sales Strategy', strategy.get('suggested_next_steps') or strategy.get('value_proposition'))
         ]
         
         current_row = 3

@@ -159,6 +159,68 @@ class MLRankingService:
                 pass
         return {}
 
+    def retrain_model(self, data_snapshot_id: str = "live_duckdb") -> Dict:
+        """
+        Retrain XGBoost model on current DuckDB data and persist artifact/metadata.
+
+        Returns metrics and model paths.
+        """
+        try:
+            from src.features.feature_engineering import (
+                build_labels,
+                extract_equipment_features,
+                load_raw_data,
+                load_raw_data_from_conn,
+            )
+            from src.models.xgb_ranking_model import XGBPriorityModel
+        except Exception as exc:
+            raise RuntimeError(f"Training dependencies unavailable: {exc}") from exc
+
+        bcg_df = crm_df = None
+        try:
+            from app.services.data_service import data_service as _ds
+            conn = _ds.get_conn()
+            if conn is not None:
+                bcg_df, crm_df = load_raw_data_from_conn(conn)
+        except Exception as shared_err:
+            logger.debug("Shared-conn training load failed (%s), falling back to direct open", shared_err)
+
+        if bcg_df is None:
+            bcg_df, crm_df = load_raw_data(self._db_path)
+
+        if bcg_df is None or bcg_df.empty:
+            raise RuntimeError("No BCG installed-base data available for retraining")
+
+        feat_df, meta = extract_equipment_features(bcg_df, crm_df)
+        feature_columns = meta.get("feature_columns", [])
+        if not feature_columns:
+            raise RuntimeError("Feature engineering produced no model columns")
+
+        labels = build_labels(bcg_df, crm_df)
+        if labels is None or labels.empty:
+            raise RuntimeError("Label generation failed; no training labels available")
+
+        model = XGBPriorityModel(model_path=self._model_path)
+        metrics = model.train(
+            X=feat_df,
+            y=labels,
+            feature_columns=feature_columns,
+            data_snapshot_id=data_snapshot_id,
+        )
+        model_path, meta_path = model.save(model_path=self._model_path)
+
+        self._model = model
+        self.clear_cache()
+
+        return {
+            "status": "ok",
+            "metrics": metrics,
+            "feature_count": len(feature_columns),
+            "sample_count": int(len(feat_df)),
+            "model_path": str(model_path),
+            "meta_path": str(meta_path),
+        }
+
     def get_feature_importance(self) -> Optional[pd.Series]:
         """Return feature importances as a pd.Series, or None."""
         if self._model and hasattr(self._model, "feature_importances_"):
@@ -350,6 +412,23 @@ class MLRankingService:
         if "_site_city" in df.columns:
             cols_to_keep.append("_site_city")
             final_cols.append("site_city")
+
+        knowledge_cols = [
+            "knowledge_doc_count",
+            "knowledge_best_match_score",
+            "knowledge_avg_match_score",
+            "knowledge_service_signal",
+            "knowledge_inspection_signal",
+            "knowledge_modernization_signal",
+            "knowledge_digital_signal",
+            "knowledge_decarbonization_signal",
+            "knowledge_project_signal",
+            "knowledge_quality_signal",
+        ]
+        for col in knowledge_cols:
+            if col in df.columns:
+                cols_to_keep.append(col)
+                final_cols.append(col)
 
         out = df[cols_to_keep].copy()
         out.columns = final_cols
