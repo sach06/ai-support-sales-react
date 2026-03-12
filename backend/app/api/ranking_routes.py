@@ -4,6 +4,8 @@ Ranking API Routes — wraps MLRankingService for React frontend consumption.
 from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
 import sys
+import threading
+import time
 from pathlib import Path
 
 # Ensure the backend root is on the path so services resolve correctly
@@ -14,6 +16,42 @@ from app.utils.json_utils import df_to_json_safe
 import json
 
 router = APIRouter()
+
+# ── Background retrain state ──────────────────────────────────────────────────
+_retrain_state: dict = {
+    "running": False,
+    "status": "idle",   # idle | running | done | error
+    "message": "",
+    "result": None,
+    "started_at": None,
+    "finished_at": None,
+}
+_retrain_lock = threading.Lock()
+
+
+def _run_retrain(snapshot_id: str) -> None:
+    global _retrain_state
+    with _retrain_lock:
+        _retrain_state["running"] = True
+        _retrain_state["status"] = "running"
+        _retrain_state["message"] = "Training in progress..."
+        _retrain_state["result"] = None
+        _retrain_state["started_at"] = time.time()
+        _retrain_state["finished_at"] = None
+    try:
+        result = ml_ranking_service.retrain_model(data_snapshot_id=snapshot_id)
+        with _retrain_lock:
+            _retrain_state["status"] = "done"
+            _retrain_state["message"] = "Training completed successfully."
+            _retrain_state["result"] = result
+    except Exception as exc:
+        with _retrain_lock:
+            _retrain_state["status"] = "error"
+            _retrain_state["message"] = str(exc)
+    finally:
+        with _retrain_lock:
+            _retrain_state["running"] = False
+            _retrain_state["finished_at"] = time.time()
 
 
 def _top_knowledge_theme(record: dict) -> str:
@@ -159,8 +197,26 @@ def get_countries():
 
 @router.post("/retrain")
 def retrain_model(snapshot_id: str = Query(default="live_duckdb")):
-    try:
-        result = ml_ranking_service.retrain_model(data_snapshot_id=snapshot_id)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """Start model retraining in a background thread (non-blocking)."""
+    with _retrain_lock:
+        if _retrain_state["running"]:
+            return {"accepted": False, "status": "running", "message": "Retraining already in progress."}
+        # Reset before starting
+        _retrain_state.update({
+            "running": True, "status": "running",
+            "message": "Training started...", "result": None,
+            "started_at": time.time(), "finished_at": None,
+        })
+    t = threading.Thread(target=_run_retrain, args=(snapshot_id,), daemon=True)
+    t.start()
+    return {"accepted": True, "status": "running", "message": "Retraining started in background."}
+
+
+@router.get("/retrain-status")
+def get_retrain_status():
+    """Poll the background retrain job status."""
+    with _retrain_lock:
+        state = dict(_retrain_state)
+    from app.utils.json_utils import json_safe_sanitize
+    return json_safe_sanitize(state)
+

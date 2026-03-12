@@ -59,44 +59,6 @@ const Layout = () => {
         }
     }, [activeCompanies, companyName, setCompanyName]);
 
-    // Check Data Loaded status on initial app boot
-    useEffect(() => {
-        const checkStatus = async () => {
-            try {
-                const status = await getDataStatus();
-                const progress = await getLoadProgress().catch(() => null);
-                const isReloading = Boolean(progress?.running);
-
-                if (progress) {
-                    setLoadProgress(progress);
-                    setLoadingDb(isReloading);
-                }
-
-                setDataLoaded(Boolean(status.loaded) && !isReloading);
-
-                if (isReloading) {
-                    startPolling();
-                }
-            } catch (error) {
-                try {
-                    const progress = await getLoadProgress();
-                    const loadCompleted = Boolean(progress.done && !progress.error);
-                    setLoadProgress(progress);
-                    setLoadingDb(Boolean(progress.running));
-                    setDataLoaded(loadCompleted && !progress.running);
-
-                    if (progress.running) {
-                        startPolling();
-                    }
-                } catch (progressError) {
-                    console.error("Failed to fetch data status:", progressError);
-                    setDataLoaded(false);
-                }
-            }
-        };
-        checkStatus();
-    }, [setDataLoaded, startPolling]);
-
     // Progress polling
     const stopPolling = useCallback(() => {
         if (pollRef.current) {
@@ -136,6 +98,44 @@ const Layout = () => {
             }
         }, 1000);
     }, [stopPolling, clearLogs, addLog, setDataLoaded]);
+
+    // Check Data Loaded status on initial app boot
+    useEffect(() => {
+        const checkStatus = async () => {
+            try {
+                const status = await getDataStatus();
+                const progress = await getLoadProgress().catch(() => null);
+                const isReloading = Boolean(progress?.running);
+
+                if (progress) {
+                    setLoadProgress(progress);
+                    setLoadingDb(isReloading);
+                }
+
+                setDataLoaded(Boolean(status.loaded) && !isReloading);
+
+                if (isReloading) {
+                    startPolling();
+                }
+            } catch (error) {
+                try {
+                    const progress = await getLoadProgress();
+                    const loadCompleted = Boolean(progress.done && !progress.error);
+                    setLoadProgress(progress);
+                    setLoadingDb(Boolean(progress.running));
+                    setDataLoaded(loadCompleted && !progress.running);
+
+                    if (progress.running) {
+                        startPolling();
+                    }
+                } catch (progressError) {
+                    console.error("Failed to fetch data status:", progressError);
+                    setDataLoaded(false);
+                }
+            }
+        };
+        checkStatus();
+    }, [setDataLoaded, startPolling]);
 
     // Cleanup on unmount
     useEffect(() => {

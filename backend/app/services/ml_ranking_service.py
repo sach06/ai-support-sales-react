@@ -159,6 +159,30 @@ class MLRankingService:
                 pass
         return {}
 
+    def _load_bcg_crm_via_data_service(self) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """Load BCG/CRM data via DataIngestionService thread-safe queries.
+
+        This avoids opening a second DuckDB connection, which is prone to
+        WinError 32 on Windows when the app already holds an exclusive lock.
+        """
+        from app.services.data_service import data_service as _ds
+
+        tables_df = _ds.execute_df("SHOW TABLES")
+        table_names = set(tables_df.iloc[:, 0].astype(str).tolist()) if not tables_df.empty else set()
+
+        bcg_candidates = ["bcg_installed_base", "bcg_data", "installed_base", "bcg"]
+        crm_candidates = ["crm_data", "crm", "customers", "unified_companies"]
+
+        bcg_table = next((t for t in bcg_candidates if t in table_names), None)
+        crm_table = next((t for t in crm_candidates if t in table_names), None)
+
+        if not bcg_table:
+            raise RuntimeError("No BCG table available in DuckDB")
+
+        bcg_df = _ds.execute_df(f"SELECT * FROM {bcg_table}")
+        crm_df = _ds.execute_df(f"SELECT * FROM {crm_table}") if crm_table else pd.DataFrame()
+        return bcg_df, crm_df
+
     def retrain_model(self, data_snapshot_id: str = "live_duckdb") -> Dict:
         """
         Retrain XGBoost model on current DuckDB data and persist artifact/metadata.
@@ -178,12 +202,9 @@ class MLRankingService:
 
         bcg_df = crm_df = None
         try:
-            from app.services.data_service import data_service as _ds
-            conn = _ds.get_conn()
-            if conn is not None:
-                bcg_df, crm_df = load_raw_data_from_conn(conn)
+            bcg_df, crm_df = self._load_bcg_crm_via_data_service()
         except Exception as shared_err:
-            logger.debug("Shared-conn training load failed (%s), falling back to direct open", shared_err)
+            logger.debug("Thread-safe shared training load failed (%s), falling back to direct open", shared_err)
 
         if bcg_df is None:
             bcg_df, crm_df = load_raw_data(self._db_path)
@@ -246,12 +267,9 @@ class MLRankingService:
             # avoids that entirely.
             bcg_df = crm_df = None
             try:
-                from app.services.data_service import data_service as _ds
-                conn = _ds.get_conn()
-                if conn is not None:
-                    bcg_df, crm_df = load_raw_data_from_conn(conn)
+                bcg_df, crm_df = self._load_bcg_crm_via_data_service()
             except Exception as shared_err:
-                logger.debug("Shared-conn load failed (%s), falling back to file open", shared_err)
+                logger.debug("Thread-safe shared load failed (%s), falling back to file open", shared_err)
 
             # ── Fallback: open the file directly (works when no Streamlit lock) ─
             if bcg_df is None:
@@ -377,10 +395,7 @@ class MLRankingService:
         try:
             bcg_df = crm_df = None
             try:
-                from app.services.data_service import data_service as _ds
-                conn = _ds.get_conn()
-                if conn is not None:
-                    bcg_df, crm_df = load_raw_data_from_conn(conn)
+                bcg_df, crm_df = self._load_bcg_crm_via_data_service()
             except Exception:
                 pass
 

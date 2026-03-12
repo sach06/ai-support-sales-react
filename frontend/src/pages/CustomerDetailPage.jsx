@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useFilterStore } from '../store/useFilterStore';
-import { getCustomerProfile, generateProfile, getInternalKnowledgeStatus, reindexInternalKnowledge } from '../api/customerApi';
+import { getCustomerProfile, generateProfile, getInternalKnowledgeStatus, reindexInternalKnowledge, getReindexStatus } from '../api/customerApi';
 import { exportDocx, exportPdf } from '../api/exportApi';
 
 import ProfileSections from './ProfileSections';
@@ -18,6 +18,10 @@ const CustomerDetailPage = () => {
     const [isReindexing, setIsReindexing] = useState(false);
     const [errorMsg, setErrorMsg] = useState(null);
     const [knowledgeActionMsg, setKnowledgeActionMsg] = useState(null);
+    const reindexPollRef = useRef(null);
+
+    // Clear polling on unmount
+    useEffect(() => () => { if (reindexPollRef.current) clearInterval(reindexPollRef.current); }, []);
 
     // Fetch initial basic data from CRM/BCG
     const { data: rawCustomerData, isLoading: isLoadingRaw, isError: isErrorRaw } = useQuery({
@@ -47,15 +51,33 @@ const CustomerDetailPage = () => {
 
     const handleReindexKnowledge = async () => {
         setIsReindexing(true);
-        setKnowledgeActionMsg(null);
+        setKnowledgeActionMsg('Reindexing started...');
         try {
-            const summary = await reindexInternalKnowledge();
-            await refetchKnowledgeStatus();
-            setKnowledgeActionMsg(`Indexed ${summary.document_count || 0} internal documents. Regenerate the profile to apply the latest evidence.`);
+            await reindexInternalKnowledge();
+            // Poll until done
+            if (reindexPollRef.current) clearInterval(reindexPollRef.current);
+            reindexPollRef.current = setInterval(async () => {
+                try {
+                    const s = await getReindexStatus();
+                    if (s.status === 'done') {
+                        clearInterval(reindexPollRef.current);
+                        reindexPollRef.current = null;
+                        setIsReindexing(false);
+                        await refetchKnowledgeStatus();
+                        setKnowledgeActionMsg(
+                            `Indexed ${s.result?.document_count || 0} internal documents. Regenerate the profile to apply the latest evidence.`
+                        );
+                    } else if (s.status === 'error') {
+                        clearInterval(reindexPollRef.current);
+                        reindexPollRef.current = null;
+                        setIsReindexing(false);
+                        setKnowledgeActionMsg(`Reindex failed: ${s.message}`);
+                    }
+                } catch (_) { /* ignore transient poll errors */ }
+            }, 2000);
         } catch (err) {
-            console.error('Failed to reindex internal knowledge:', err);
-            setKnowledgeActionMsg('Failed to reindex internal knowledge. Check backend access to the P: drive.');
-        } finally {
+            console.error('Failed to start reindex:', err);
+            setKnowledgeActionMsg('Failed to start reindex. Check backend access to the P: drive.');
             setIsReindexing(false);
         }
     };

@@ -11,12 +11,21 @@ export const getCustomerProfile = async (customerName, filters = {}) => {
 };
 
 export const generateProfile = async (customerName) => {
-    const response = await api.post(`/customer/${encodeURIComponent(customerName)}/generate-profile`);
+    const response = await api.post(
+        `/customer/${encodeURIComponent(customerName)}/generate-profile`,
+        null,
+        { timeout: 180000 }
+    );
     return response.data.profile;
 };
 
 export const reindexInternalKnowledge = async (targets = null) => {
     const response = await api.post('/internal-knowledge/reindex', targets ? { targets } : {});
+    return response.data;
+};
+
+export const getReindexStatus = async () => {
+    const response = await api.get('/internal-knowledge/reindex-status');
     return response.data;
 };
 

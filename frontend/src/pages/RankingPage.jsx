@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useFilterStore } from '../store/useFilterStore';
 import { useDataStore } from '../store/useDataStore';
-import { getRankedList, getModelStatus, retrainRankingModel } from '../api/rankingApi';
+import { getRankedList, getModelStatus, retrainRankingModel, getRetrainStatus } from '../api/rankingApi';
 
 import RankingTable from './RankingTable';
 import RankingExplainer from './RankingExplainer';
@@ -17,6 +17,41 @@ const RankingPage = () => {
     const [forceHeuristic, setForceHeuristic] = useState(false);
     const [isRetraining, setIsRetraining] = useState(false);
     const [retrainMessage, setRetrainMessage] = useState(null);
+    const [retrainSuccess, setRetrainSuccess] = useState(null); // true | false | null
+    const retrainPollRef = useRef(null);
+
+    // Clear polling on unmount
+    useEffect(() => () => { if (retrainPollRef.current) clearInterval(retrainPollRef.current); }, []);
+
+    const _startPollingRetrain = () => {
+        if (retrainPollRef.current) clearInterval(retrainPollRef.current);
+        retrainPollRef.current = setInterval(async () => {
+            try {
+                const s = await getRetrainStatus();
+                if (s.status === 'done') {
+                    clearInterval(retrainPollRef.current);
+                    retrainPollRef.current = null;
+                    setIsRetraining(false);
+                    setRetrainSuccess(true);
+                    const auc = s.result?.metrics?.auc_test;
+                    setRetrainMessage(
+                        `Model retrained on ${s.result?.sample_count || 0} samples, ` +
+                        `${s.result?.feature_count || 0} features` +
+                        (typeof auc === 'number' ? ` · AUC ${auc.toFixed(3)}` : '') + '.'
+                    );
+                    await refetchStatus();
+                    await refetchRankings();
+                    setForceHeuristic(false);
+                } else if (s.status === 'error') {
+                    clearInterval(retrainPollRef.current);
+                    retrainPollRef.current = null;
+                    setIsRetraining(false);
+                    setRetrainSuccess(false);
+                    setRetrainMessage(`Retraining failed: ${s.message}`);
+                }
+            } catch (_) { /* ignore transient errors */ }
+        }, 2500);
+    };
 
     // Fetch ML Model Availability Status
     const { data: statusData, refetch: refetchStatus } = useQuery({
@@ -39,21 +74,15 @@ const RankingPage = () => {
 
     const handleRetrain = async () => {
         setIsRetraining(true);
-        setRetrainMessage(null);
+        setRetrainMessage('Retraining started...');
+        setRetrainSuccess(null);
         try {
-            const result = await retrainRankingModel('live_duckdb_internal_knowledge');
-            await refetchStatus();
-            await refetchRankings();
-            const auc = result?.metrics?.auc_test;
-            setRetrainMessage(
-                `Model retrained on ${result?.sample_count || 0} samples and ${result?.feature_count || 0} features` +
-                (typeof auc === 'number' ? ` (AUC ${auc.toFixed(3)}).` : '.')
-            );
-            setForceHeuristic(false);
+            await retrainRankingModel('live_duckdb_internal_knowledge');
+            _startPollingRetrain();
         } catch (err) {
-            console.error('Failed to retrain ranking model:', err);
-            setRetrainMessage('Retraining failed. Check backend logs for details (xgboost/sklearn dependencies or data availability).');
-        } finally {
+            console.error('Failed to start retraining:', err);
+            setRetrainMessage('Failed to start retraining. Check backend logs.');
+            setRetrainSuccess(false);
             setIsRetraining(false);
         }
     };
@@ -115,9 +144,9 @@ const RankingPage = () => {
             </div>
 
             {retrainMessage && (
-                <div className="status-banner banner-success" style={{ marginBottom: '1rem' }}>
+                <div className={`status-banner ${retrainSuccess === false ? 'banner-warning' : 'banner-success'}`} style={{ marginBottom: '1rem' }}>
                     <div className="banner-content">
-                        <span className="banner-icon">🧠</span>
+                        <span className="banner-icon">{retrainSuccess === false ? '❌' : '🧠'}</span>
                         <div className="banner-text">{retrainMessage}</div>
                     </div>
                 </div>

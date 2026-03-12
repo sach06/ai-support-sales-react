@@ -109,7 +109,8 @@ def generate_steckbrief(customer_name: str = URLPath(...)):
         country_intelligence = {}
         knowledge_analysis = None
         
-        with ThreadPoolExecutor(max_workers=4) as executor:
+        executor = ThreadPoolExecutor(max_workers=4)
+        try:
             # Submit all concurrent tasks
             future_overview = executor.submit(web_enrichment_service.get_company_overview, actual_name)
             future_news = executor.submit(web_enrichment_service.get_recent_news, actual_name, 6)
@@ -121,31 +122,32 @@ def generate_steckbrief(customer_name: str = URLPath(...)):
                 internal_knowledge_service.analyze_customer,
                 actual_name,
                 equipment_types,
-                str(country_value) if country_value else None
+                str(country_value) if country_value else None,
+                4,
             )
-            
-            # Collect results as they complete
+
+            # Collect results with bounded waits
             try:
-                company_overview = future_overview.result(timeout=30)
+                company_overview = future_overview.result(timeout=20)
             except Exception as e:
                 print(f"Warning: Failed to fetch company overview: {e}")
                 company_overview = None
-            
+
             try:
-                company_news = future_news.result(timeout=30)
+                company_news = future_news.result(timeout=20)
             except Exception as e:
                 print(f"Warning: Failed to fetch company news: {e}")
                 company_news = None
-            
+
             if future_country_intel:
                 try:
-                    country_intelligence = future_country_intel.result(timeout=30) or {}
+                    country_intelligence = future_country_intel.result(timeout=20) or {}
                 except Exception as e:
                     print(f"Warning: Failed to fetch country intelligence: {e}")
                     country_intelligence = {}
-            
+
             try:
-                knowledge_analysis = future_knowledge.result(timeout=60)
+                knowledge_analysis = future_knowledge.result(timeout=12)
             except Exception as e:
                 print(f"Warning: Failed to analyze customer knowledge: {e}")
                 knowledge_analysis = {
@@ -154,6 +156,9 @@ def generate_steckbrief(customer_name: str = URLPath(...)):
                     "evidence": [],
                     "signals": internal_knowledge_service._empty_signals()
                 }
+        finally:
+            # Do not block request completion on stalled worker threads
+            executor.shutdown(wait=False, cancel_futures=True)
         
         internal_knowledge = knowledge_analysis.get("context", "")
         
@@ -165,6 +170,8 @@ def generate_steckbrief(customer_name: str = URLPath(...)):
             "history": _safe_json(crm_hist)
         }
         
+        manager_briefing = internal_knowledge_service.get_manager_briefing_context(max_chars=6000)
+
         extra_context = {
             "ib_summary": _safe_json(ib_sum),
             "crm_history": _safe_json(crm_hist),
@@ -172,6 +179,8 @@ def generate_steckbrief(customer_name: str = URLPath(...)):
             "company_news": _safe_json(company_news),
             "country_intelligence": _safe_json(country_intelligence),
             "internal_knowledge": internal_knowledge,
+            "internal_knowledge_signals": knowledge_analysis.get("signals", {}),
+            "manager_briefing": manager_briefing.get("content", ""),
         }
 
         web_context_parts = []
@@ -208,6 +217,13 @@ def generate_steckbrief(customer_name: str = URLPath(...)):
             profile.setdefault('references', [])
             if isinstance(profile.get('references'), list):
                 profile['references'].extend([r for r in internal_refs if r not in profile['references']])
+
+        if manager_briefing.get("source"):
+            profile.setdefault('references', [])
+            if isinstance(profile.get('references'), list):
+                briefing_ref = f"Manager Briefing (Internal PDF): {manager_briefing['source']}"
+                if briefing_ref not in profile['references']:
+                    profile['references'].append(briefing_ref)
 
         if knowledge_analysis.get("evidence"):
             profile["internal_knowledge_evidence"] = knowledge_analysis["evidence"]

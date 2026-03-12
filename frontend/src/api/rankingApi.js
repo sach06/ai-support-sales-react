@@ -25,3 +25,8 @@ export const retrainRankingModel = async (snapshotId = 'live_duckdb') => {
     });
     return response.data;
 };
+
+export const getRetrainStatus = async () => {
+    const response = await api.get('/ranking/retrain-status');
+    return response.data;
+};

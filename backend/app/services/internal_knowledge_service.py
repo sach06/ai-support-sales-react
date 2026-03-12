@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -62,6 +63,8 @@ class InternalKnowledgeService:
         self._cache_ttl_seconds = 30 * 60  # 30 minutes
         # Load inverted keyword index into memory
         self._keyword_index: Dict[str, List[str]] = self._load_keyword_index()
+        # Manifest entries cache: (mtime_float, entries_list)
+        self._manifest_entries_cache: tuple[float, List[Dict[str, Any]]] | None = None
 
     def list_documents(self) -> List[Path]:
         local_docs = [
@@ -71,17 +74,10 @@ class InternalKnowledgeService:
             and p.name.lower() not in {"manifest.csv", "p_drive_manifest.csv", "test_manifest.csv"}
         ]
 
+        # IMPORTANT: avoid Path.exists() checks for large network manifests here.
+        # Runtime profile generation must stay fast and predictable; network path
+        # validation across 10k+ rows can block for minutes.
         manifest_docs: List[Path] = []
-        if self.manifest_path.exists():
-            try:
-                mf = pd.read_csv(self.manifest_path)
-                if "SourcePath" in mf.columns:
-                    for raw in mf["SourcePath"].dropna().astype(str).tolist():
-                        p = Path(raw)
-                        if p.exists() and p.is_file() and p.suffix.lower() in ALLOWED_EXTENSIONS:
-                            manifest_docs.append(p)
-            except Exception as exc:
-                logger.warning("Failed to parse %s: %s", self.manifest_path, exc)
 
         seen = set()
         all_docs: List[Path] = []
@@ -165,6 +161,8 @@ class InternalKnowledgeService:
         if not manifest_df.empty:
             manifest_df = manifest_df.sort_values(["Target", "RelativePath", "SourceName"]).reset_index(drop=True)
         manifest_df.to_csv(self.manifest_path, index=False)
+        # Invalidate manifest entries cache so next call picks up the fresh CSV
+        self._manifest_entries_cache = None
 
         # ── Build keyword index for fast future lookups ─────────────────
         indexed_docs = self.list_documents()
@@ -264,6 +262,33 @@ class InternalKnowledgeService:
     def get_company_feature_signals(self, customer_name: str, equipment_types: Sequence[str] | None = None, country: str | None = None, limit: int = 6) -> Dict[str, float]:
         return self.analyze_customer(customer_name, equipment_types, country, limit=limit).get("signals", self._empty_signals())
 
+    def get_manager_briefing_context(self, max_chars: int = 12000) -> Dict[str, str]:
+        """Return manager briefing text that should be injected into all profiles.
+
+        Looks for local internal knowledge files with 'briefing' in the filename,
+        prioritizing PDFs and newest files.
+        """
+        candidates = [
+            p for p in self.base_dir.rglob("*")
+            if p.is_file() and "briefing" in p.name.lower() and p.suffix.lower() in ALLOWED_EXTENSIONS
+        ]
+        if not candidates:
+            return {"source": "", "content": ""}
+
+        # Prefer PDFs, then newest modified file
+        candidates.sort(key=lambda p: (0 if p.suffix.lower() == ".pdf" else 1, -p.stat().st_mtime))
+        source = candidates[0]
+        try:
+            text = self._clean_text(self._read_text(source))
+        except Exception as exc:
+            logger.warning("Failed to read manager briefing file %s: %s", source, exc)
+            return {"source": str(source), "content": ""}
+
+        return {
+            "source": str(source),
+            "content": text[:max_chars],
+        }
+
     def _load_keyword_index(self) -> Dict[str, List[str]]:
         """Load the pre-built keyword inverted index from disk (empty dict if missing)."""
         if not self.index_path.exists():
@@ -334,24 +359,42 @@ class InternalKnowledgeService:
         equipment_col: str | None = None,
         country_col: str | None = None,
     ) -> pd.DataFrame:
-        feature_rows: List[Dict[str, float]] = []
-        manifest_entries = self._load_manifest_entries()
         if items_df.empty:
             return pd.DataFrame()
 
-        for _, row in items_df.iterrows():
-            feature_rows.append(
-                self._build_training_features(
-                    company_name=row.get(company_col, ""),
-                    equipment_type=row.get(equipment_col, "") if equipment_col else "",
-                    country=row.get(country_col, "") if country_col else "",
+        manifest_entries = self._load_manifest_entries()
+
+        # ── Aggregate at unique-company level to avoid O(n*m) repetition ──
+        # Many BCG rows share the same company. Compute knowledge features once
+        # per unique company, then join back by position.
+        companies = items_df[company_col].fillna("").astype(str)
+        equipment = items_df[equipment_col].fillna("").astype(str) if equipment_col else pd.Series("", index=items_df.index)
+        countries = items_df[country_col].fillna("").astype(str) if country_col else pd.Series("", index=items_df.index)
+
+        # Build a lookup key: (company, equipment_type, country) per row
+        # – use company-only key for deduplication since manifest matching is company-driven
+        unique_keys: dict[str, Dict[str, float]] = {}
+        row_keys: List[str] = []
+
+        for company, eq, country in zip(companies, equipment, countries):
+            key = company  # manifest features are company-level
+            row_keys.append(key)
+            if key not in unique_keys:
+                unique_keys[key] = self._build_training_features(
+                    company_name=company,
+                    equipment_type=eq,
+                    country=country,
                     manifest_entries=manifest_entries,
                 )
-            )
+
+        feature_rows = [unique_keys[k] for k in row_keys]
         return pd.DataFrame(feature_rows)
 
     def _collect_hits(self, docs: Sequence[Path], keywords: Sequence[str]) -> List[KnowledgeHit]:
         hits: List[KnowledgeHit] = []
+        started_at = time.monotonic()
+        scan_budget_seconds = 18.0
+        max_docs_to_scan = 140
         
         # ── FAST PATH: Use index to filter candidate documents ──────────
         candidate_paths = self._get_candidate_documents(keywords)
@@ -361,11 +404,36 @@ class InternalKnowledgeService:
             logger.debug(f"Using index: {len(candidate_paths)} candidates out of {len(docs)} total documents")
             candidates = [Path(p) for p in candidate_paths if Path(p).exists()]
         else:
-            # FALLBACK: No index hits, scan all documents (slow)
-            logger.debug(f"No index hits, falling back to full document scan ({len(docs)} docs)")
+            # FALLBACK: no index hits. Do not scan all files (can be 10k+ docs).
+            logger.debug(f"No index hits, scanning limited subset ({len(docs)} docs total)")
             candidates = list(docs)
+
+        # Prioritize likely-relevant, lighter formats and manager briefing files.
+        def _priority(path: Path):
+            suffix = path.suffix.lower()
+            name = path.name.lower()
+            format_rank = {
+                ".pdf": 0,
+                ".docx": 1,
+                ".txt": 2,
+                ".md": 3,
+                ".html": 4,
+                ".htm": 5,
+                ".json": 6,
+                ".csv": 7,
+                ".xlsx": 8,
+                ".xls": 9,
+            }.get(suffix, 10)
+            briefing_rank = 0 if "briefing" in name else 1
+            size = path.stat().st_size if path.exists() else 0
+            return (briefing_rank, format_rank, size)
+
+        candidates = sorted(candidates, key=_priority)[:max_docs_to_scan]
         
         for doc in candidates:
+            if time.monotonic() - started_at > scan_budget_seconds:
+                logger.debug("Internal knowledge scan budget reached (%.1fs)", scan_budget_seconds)
+                break
             try:
                 text = self._read_text(doc)
             except Exception as exc:
@@ -441,8 +509,22 @@ class InternalKnowledgeService:
         return signals
 
     def _load_manifest_entries(self) -> List[Dict[str, Any]]:
+        """Return manifest entries, refreshing the in-memory cache only when the
+        CSV has changed on disk (checked via mtime)."""
         if not self.manifest_path.exists():
             return []
+
+        try:
+            mtime = self.manifest_path.stat().st_mtime
+        except Exception:
+            mtime = 0.0
+
+        # Return cached version if file has not changed
+        if self._manifest_entries_cache is not None:
+            cached_mtime, cached_entries = self._manifest_entries_cache
+            if mtime == cached_mtime:
+                return cached_entries
+
         try:
             manifest_df = pd.read_csv(self.manifest_path)
         except Exception as exc:
@@ -457,6 +539,9 @@ class InternalKnowledgeService:
             text = self._clean_text(" ".join([source_name, relative_path, target]).lower())
             if text:
                 entries.append({"text": text})
+
+        self._manifest_entries_cache = (mtime, entries)
+        logger.info("Refreshed manifest entries cache: %d entries from %s", len(entries), self.manifest_path)
         return entries
 
     def _write_summary(self, summary: Dict[str, Any]) -> None:
