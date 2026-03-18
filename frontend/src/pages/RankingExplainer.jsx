@@ -1,4 +1,18 @@
-import React from 'react';
+import React, { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import api from '../api/client';
+
+const fetchCompanyNews = async (company, equipmentType, country) => {
+    const response = await api.get('/data/news', {
+        params: {
+            company,
+            equipment_type: equipmentType,
+            country,
+            limit: 6,
+        },
+    });
+    return response.data?.news || [];
+};
 
 const RankingExplainer = ({ rowData }) => {
     if (!rowData) return <div className="explainer-empty">Select a company from the ranking table to see details.</div>;
@@ -19,9 +33,9 @@ const RankingExplainer = ({ rowData }) => {
         log_fte: 'Larger organizations tend to run broader capex programs and continuous improvement roadmaps.',
         equipment_type_enc: 'Equipment class is a structural predictor of lifecycle needs and technical intervention depth.',
         country_enc: 'Country context captures macro and policy effects that influence investment timing.',
-        knowledge_doc_count: 'More matched internal documents increase confidence that account context is evidence-backed.',
-        knowledge_best_match_score: 'A strong best-match score indicates direct project/service overlap in internal knowledge.',
-        knowledge_avg_match_score: 'Higher average relevance reflects consistent document alignment with the customer context.',
+        knowledge_doc_count: 'Number of relevant SMS references found for this customer. More references usually means a warmer start.',
+        knowledge_best_match_score: 'How strong our single best historical SMS match is. Higher means very similar proven work.',
+        knowledge_avg_match_score: 'How relevant our matched references are overall. Higher means stronger overall fit.',
         knowledge_service_signal: 'Service-heavy evidence points to maintenance contracts, spares demand, and service-led sales entry.',
         knowledge_inspection_signal: 'Inspection evidence indicates technical touchpoints that can convert into modernization projects.',
         knowledge_modernization_signal: 'Revamp-heavy signals suggest meaningful capex potential and modernization demand.',
@@ -30,6 +44,32 @@ const RankingExplainer = ({ rowData }) => {
         knowledge_project_signal: 'Project-level evidence increases confidence that active execution or commercial momentum exists.',
         knowledge_quality_signal: 'Quality-related evidence may indicate corrective retrofit, reliability, and lifecycle service opportunities.',
     };
+
+    const DRIVER_LABELS = {
+        equipment_age: 'Equipment age and replacement timing',
+        is_sms_oem: 'Existing SMS footprint at site',
+        crm_rating_num: 'Relationship strength in CRM',
+        crm_projects_count: 'Past projects with this account',
+        log_fte: 'Customer size and investment capacity',
+        equipment_type_enc: 'Equipment lifecycle profile',
+        country_enc: 'Country market and policy context',
+        knowledge_doc_count: 'How many relevant SMS references we found',
+        knowledge_best_match_score: 'Best historical SMS match quality',
+        knowledge_avg_match_score: 'Overall historical match quality',
+        knowledge_service_signal: 'Service follow-up potential',
+        knowledge_inspection_signal: 'Inspection-led entry potential',
+        knowledge_modernization_signal: 'Modernization potential',
+        knowledge_digital_signal: 'Digital optimization potential',
+        knowledge_decarbonization_signal: 'Decarbonization potential',
+        knowledge_project_signal: 'Active project momentum',
+        knowledge_quality_signal: 'Quality-improvement opportunity',
+    };
+
+    const { data: newsItems = [] } = useQuery({
+        queryKey: ['ranking_company_news', rowData.company, rowData.equipment_type, rowData.country],
+        queryFn: () => fetchCompanyNews(rowData.company, rowData.equipment_type, rowData.country),
+        staleTime: 300000,
+    });
 
     // The backend ML service returns a JSON string inside the 'top_features' column for XGBoost
     // or a string list for heuristics.
@@ -53,10 +93,58 @@ const RankingExplainer = ({ rowData }) => {
         parsedFeatures = DEFAULT_TOP_DRIVERS;
     }
 
+    const actionInsights = useMemo(() => {
+        const insights = [];
+        const age = Number(rowData.equipment_age || 0);
+        const serviceSignal = Number(rowData.knowledge_service_signal || 0);
+        const modernizationSignal = Number(rowData.knowledge_modernization_signal || 0);
+        const decarbSignal = Number(rowData.knowledge_decarbonization_signal || 0);
+        const digitalSignal = Number(rowData.knowledge_digital_signal || 0);
+        const projectSignal = Number(rowData.knowledge_project_signal || 0);
+
+        if (age >= 18) {
+            insights.push(`Aging equipment profile (${age.toFixed(1)} years) supports a modernization-led pitch with staged capex and uptime guarantees.`);
+        } else {
+            insights.push(`Modern equipment profile (${age.toFixed(1)} years) supports a service-led growth path: predictive maintenance, spares optimization, and performance contracts.`);
+        }
+
+        if (decarbSignal >= 0.35) {
+            insights.push('Decarbonization signals are elevated. Position energy optimization, electrification enablers, and CO2-reduction retrofits with clear ROI per ton.' );
+        }
+
+        if (modernizationSignal >= 0.35 || projectSignal >= 0.35) {
+            insights.push('Internal project evidence indicates active technical momentum. Propose a focused site assessment to convert current touchpoints into executable upgrade packages.');
+        }
+
+        if (serviceSignal >= 0.35 || digitalSignal >= 0.35) {
+            insights.push('Strong service and digital fingerprints suggest immediate value from reliability analytics, maintenance planning, and long-term service agreements.');
+        }
+
+        const geopoliticalTitle = newsItems.find((item) => {
+            const title = (item.title || '').toLowerCase();
+            return title.includes('middle east') || title.includes('war') || title.includes('tariff') || title.includes('sanction');
+        });
+
+        if (geopoliticalTitle) {
+            insights.push('Recent geopolitical headlines indicate volatility risk in steel value chains. Use risk-mitigation messaging: efficiency upgrades, yield protection, and flexible sourcing-compatible process windows.');
+        }
+
+        return insights.slice(0, 5);
+    }, [newsItems, rowData]);
+
     // Helper to format feature names for readability
     const formatFeatureName = (name) => {
+        if (DRIVER_LABELS[name]) return DRIVER_LABELS[name];
         return name.replace(/_/g, ' ')
             .replace(/\b\w/g, l => l.toUpperCase());
+    };
+
+    const toEvidenceLevel = (score) => {
+        if (score >= 8) return 'Very strong';
+        if (score >= 6) return 'Strong';
+        if (score >= 4) return 'Moderate';
+        if (score > 0) return 'Early signal';
+        return 'No match yet';
     };
 
     const knowledgeSignals = [
@@ -83,7 +171,18 @@ const RankingExplainer = ({ rowData }) => {
             </div>
 
             <div className="explainer-body">
-                <h4>Top Drivers for Priority</h4>
+                <h4>Actionable Opportunity Insights</h4>
+                {actionInsights.length > 0 ? (
+                    <ul className="feature-list">
+                        {actionInsights.map((insight, idx) => (
+                            <li key={`insight-${idx}`}>
+                                <div style={{ fontSize: '0.88rem', color: 'var(--text-primary)', lineHeight: '1.45' }}>{insight}</div>
+                            </li>
+                        ))}
+                    </ul>
+                ) : null}
+
+                <h4>Why This Account Is High Priority</h4>
                 {parsedFeatures.length === 0 ? (
                     <p className="no-features-msg">No specific drivers identified for this score.</p>
                 ) : (
@@ -109,10 +208,13 @@ const RankingExplainer = ({ rowData }) => {
                     </ul>
                 )}
 
-                <h4 style={{ marginTop: '1.25rem' }}>Internal Evidence Signals</h4>
+                <h4 style={{ marginTop: '1.25rem' }}>How to Read the SMS Evidence</h4>
                 <div style={{ display: 'grid', gap: '0.5rem' }}>
                     <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                        Matched docs: {Math.round(Number(rowData.knowledge_doc_count || 0))} | Best match score: {Number(rowData.knowledge_best_match_score || 0).toFixed(1)}
+                        Relevant SMS references: {Math.round(Number(rowData.knowledge_doc_count || 0))} | Best historical match: {toEvidenceLevel(Number(rowData.knowledge_best_match_score || 0))}
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                        Quick guide: "Best historical match" = closest proven SMS case, "Overall fit" = average similarity across all references.
                     </div>
                     {knowledgeSignals.map((signal) => {
                         const value = Number(rowData[signal.key] || 0);
@@ -130,6 +232,24 @@ const RankingExplainer = ({ rowData }) => {
                         <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>{rowData.knowledge_summary}</div>
                     )}
                 </div>
+
+                <h4 style={{ marginTop: '1.25rem' }}>Market And Geopolitical Pulse</h4>
+                {newsItems.length === 0 ? (
+                    <p className="no-features-msg">No recent contextual news fetched for this account.</p>
+                ) : (
+                    <ul className="feature-list" style={{ marginBottom: '1rem' }}>
+                        {newsItems.slice(0, 3).map((item, idx) => (
+                            <li key={`news-${idx}`}>
+                                <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)', lineHeight: '1.35' }}>
+                                    {item.title}
+                                </div>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                    {item.source || 'Unknown source'}
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                )}
 
                 <div className="action-button-container">
                     {/* Note: This logic would be hooked up to React Router in actual usage to redirect */}

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useFilterStore } from '../store/useFilterStore';
 import { getCustomerProfile, generateProfile, getInternalKnowledgeStatus, reindexInternalKnowledge, getReindexStatus } from '../api/customerApi';
-import { exportDocx, exportPdf } from '../api/exportApi';
+import { exportDocx, exportPdf, exportPptx } from '../api/exportApi';
 
 import ProfileSections from './ProfileSections';
 import InventoryTable from './InventoryTable';
@@ -91,6 +91,8 @@ const CustomerDetailPage = () => {
                 await exportDocx(profileData, companyName);
             } else if (format === 'pdf') {
                 await exportPdf(profileData, companyName);
+            } else if (format === 'pptx') {
+                await exportPptx(profileData, companyName);
             }
         } catch (err) {
             console.error(`Failed to export ${format}:`, err);
@@ -104,7 +106,7 @@ const CustomerDetailPage = () => {
         return (
             <div className="customer-empty-state">
                 <h2>No Customer Selected</h2>
-                <p>Please select a specific Company Name from the sidebar filters to view and generate a detail profile.</p>
+                <p>Please select a specific Company Name from the sidebar filters to view and generate a customer profile.</p>
             </div>
         );
     }
@@ -156,7 +158,7 @@ const CustomerDetailPage = () => {
                         </button>
                     ) : (
                         <div className="export-actions">
-                            <span className="export-label">Export Profile:</span>
+                            <span className="export-label">Export Customer Profile:</span>
                             <button
                                 className="btn-secondary btn-export"
                                 onClick={() => handleExport('docx')}
@@ -170,6 +172,13 @@ const CustomerDetailPage = () => {
                                 disabled={isExporting}
                             >
                                 📑 PDF
+                            </button>
+                            <button
+                                className="btn-secondary btn-export"
+                                onClick={() => handleExport('pptx')}
+                                disabled={isExporting}
+                            >
+                                📊 PPTX
                             </button>
                         </div>
                     )}

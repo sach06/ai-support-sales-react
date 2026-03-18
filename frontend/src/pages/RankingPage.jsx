@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useFilterStore } from '../store/useFilterStore';
 import { useDataStore } from '../store/useDataStore';
@@ -8,6 +8,22 @@ import RankingTable from './RankingTable';
 import RankingExplainer from './RankingExplainer';
 import RankingCharts from './RankingCharts';
 import './Ranking.css';
+
+const normalizeCompanyName = (name) => {
+    if (!name) return '';
+    return String(name)
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z0-9]/g, '')
+        .toLowerCase();
+};
+
+const isCompanyMatch = (candidate, target) => {
+    const a = normalizeCompanyName(candidate);
+    const b = normalizeCompanyName(target);
+    if (!a || !b) return false;
+    return a === b || a.startsWith(b) || b.startsWith(a) || a.includes(b) || b.includes(a);
+};
 
 const RankingPage = () => {
     const { country, equipmentType, companyName } = useFilterStore();
@@ -58,13 +74,21 @@ const RankingPage = () => {
         queryKey: ['model_status'],
         queryFn: getModelStatus,
         enabled: dataLoaded,
+        staleTime: 120_000,
     });
 
     // Main Ranking List Query based on sidebar filters via API
     const { data: rankings, isLoading, isError, refetch: refetchRankings } = useQuery({
-        queryKey: ['ranked_list', { equipmentType, country, forceHeuristic }],
-        queryFn: () => getRankedList({ equipmentType, country, topK: 50, forceHeuristic }),
+        queryKey: ['ranked_list', { equipmentType, country, companyName, forceHeuristic }],
+        queryFn: () => getRankedList({
+            equipmentType,
+            country,
+            companyName,
+            topK: 50,
+            forceHeuristic,
+        }),
         enabled: dataLoaded,
+        staleTime: 60_000,
     });
 
     const isModelAvailable = statusData?.available || false;
@@ -87,6 +111,61 @@ const RankingPage = () => {
         }
     };
 
+    // Auto-select the company in focus if it exists in the ranking set, otherwise pick the top rank.
+    useEffect(() => {
+        if (!rankings || rankings.length === 0) {
+            setSelectedCompany(null);
+            return;
+        }
+
+        if (companyName && companyName !== 'All') {
+            const target = rankings.find((r) => isCompanyMatch(r.company, companyName));
+            if (target) {
+                setSelectedCompany(target);
+                return;
+            }
+        }
+
+        if (selectedCompany) {
+            const updatedSelected = rankings.find((r) => r.company === selectedCompany.company);
+            if (updatedSelected) {
+                setSelectedCompany(updatedSelected);
+                return;
+            }
+        }
+
+        setSelectedCompany(rankings[0]);
+    }, [rankings, companyName]);
+
+    const displayRankings = useMemo(() => {
+        if (!rankings || rankings.length === 0) return [];
+
+        const rankedWithOriginal = rankings.map((row, index) => ({
+            ...row,
+            original_rank: index + 1,
+            display_rank: index + 1,
+        }));
+
+        if (!companyName || companyName === 'All') {
+            return rankedWithOriginal;
+        }
+
+        const targetIndex = rankedWithOriginal.findIndex(
+            (row) => isCompanyMatch(row.company, companyName)
+        );
+
+        if (targetIndex < 0) {
+            return rankedWithOriginal;
+        }
+
+        const pinned = rankedWithOriginal[targetIndex];
+        const others = rankedWithOriginal.filter((_, idx) => idx !== targetIndex);
+        return [
+            { ...pinned, display_rank: 0 },
+            ...others.map((row, idx) => ({ ...row, display_rank: idx + 1 })),
+        ];
+    }, [rankings, companyName]);
+
     if (!dataLoaded) {
         return (
             <div className="ranking-empty-state">
@@ -95,24 +174,6 @@ const RankingPage = () => {
             </div>
         );
     }
-
-    // Auto-select the company in focus if it exists in the ranking set, otherwise pick the top rank.
-    useEffect(() => {
-        if (rankings && rankings.length > 0) {
-            if (companyName && companyName !== 'All') {
-                const target = rankings.find(r => r.company.toLowerCase() === companyName.toLowerCase());
-                if (target) {
-                    setSelectedCompany(target);
-                    return;
-                }
-            }
-            // If target isn't explicitly found, keep current selection, 
-            // but if we have no selection yet, gracefully default to the first
-            if (!selectedCompany && rankings[0]) {
-                setSelectedCompany(rankings[0]);
-            }
-        }
-    }, [rankings, companyName]);
 
     return (
         <div className="ranking-container">
@@ -162,7 +223,7 @@ const RankingPage = () => {
                         <div className="error-state">Failed to calculate rankings.</div>
                     ) : (
                         <RankingTable
-                            data={rankings || []}
+                            data={displayRankings}
                             onRowSelect={setSelectedCompany}
                             selectedId={selectedCompany?.company}
                             pinnedCompany={companyName}
@@ -180,9 +241,9 @@ const RankingPage = () => {
 
             {/* Charts Section */}
             <div className="ranking-charts-section">
-                <h3>Analytics & Breakdown</h3>
+                <h3>Opportunity Breakdown, Win/Loss & Competitor Deep Dive</h3>
                 <div className="charts-panel">
-                    <RankingCharts data={rankings || []} />
+                    <RankingCharts data={displayRankings} selectedCompany={selectedCompany} />
                 </div>
             </div>
         </div>

@@ -16,6 +16,7 @@ from app.services.enhanced_export_service import enhanced_export_service
 from app.services.data_service import data_service
 from app.services.historical_service import get_yearly_performance, get_ib_summary
 from app.services.web_enrichment_service import web_enrichment_service
+from app.services.profile_generator import profile_generator
 import plotly.express as px
 import pandas as pd
 
@@ -172,4 +173,46 @@ def export_pdf(payload: Dict[str, Any] = Body(...)):
     except Exception as e:
         import traceback
         print(f"PDF Export error: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/pptx")
+def export_pptx(payload: Dict[str, Any] = Body(...)):
+    """Export profile to PPTX using AI summarization for slide narratives."""
+    profile = payload.get("profile")
+    customer_name = payload.get("customer_name")
+
+    if not profile or not customer_name:
+        raise HTTPException(status_code=400, detail="Missing profile or customer_name in payload")
+
+    try:
+        details = data_service.get_customer_detail(customer_name)
+        crm_history = get_yearly_performance(customer_name)
+
+        ai_slide_outline = profile_generator.generate_ppt_outline(
+            customer_name=customer_name,
+            profile_data=profile,
+            crm_history=crm_history,
+        )
+
+        buffer = enhanced_export_service.generate_comprehensive_pptx(
+            customer_name=customer_name,
+            profile_data=profile,
+            customer_data={
+                'projects': details.get('crm', {}).get('projects', []),
+                'installed_base': details.get('installed_base', []),
+            },
+            crm_history=crm_history,
+            ai_slide_outline=ai_slide_outline,
+        )
+        filename = enhanced_export_service.generate_filename(customer_name, "pptx")
+
+        return StreamingResponse(
+            buffer,
+            media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            headers={"Content-Disposition": f"attachment; filename*=utf-8''{quote(filename)}"}
+        )
+    except Exception as e:
+        import traceback
+        print(f"PPTX Export error: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))

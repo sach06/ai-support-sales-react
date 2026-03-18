@@ -230,6 +230,32 @@ def generate_steckbrief(customer_name: str = URLPath(...)):
         if knowledge_analysis.get("signals"):
             profile["internal_knowledge_signals"] = knowledge_analysis["signals"]
         profile["internal_knowledge_status"] = internal_knowledge_service.get_status()
+
+        # Order-intake history for profile tab/export tables and charts.
+        yearly_df = crm_hist.get('yearly_df') if isinstance(crm_hist, dict) else None
+        if yearly_df is not None and not yearly_df.empty:
+            profile['order_intake_history'] = [
+                {
+                    'year': int(row.get('Year', 0) or 0),
+                    'amount_eur': float(row.get('Total Value (EUR)', 0) or 0),
+                    'won_value_eur': float(row.get('Won Value (EUR)', 0) or 0),
+                    'win_rate_pct': float(row.get('Win Rate %', 0) or 0),
+                }
+                for _, row in yearly_df.iterrows()
+            ]
+
+        # Ensure extended profile fields exist so UI always renders requested sections.
+        profile.setdefault('basic_data', {})
+        profile.setdefault('history', {})
+        profile.setdefault('sales_strategy', {})
+
+        profile['basic_data'].setdefault('ownership_type', profile['basic_data'].get('owner', 'Not available'))
+        profile['basic_data'].setdefault('management_deep_dive', profile['basic_data'].get('management', 'Not available'))
+        profile['basic_data'].setdefault('decision_governance', 'Working hypothesis: strategic capex decisions are driven by board/executive approval with operations and finance sign-off.')
+
+        profile['history'].setdefault('active_opportunity_deep_dive', profile.get('priority_analysis', {}).get('engagement_recommendation', 'Active opportunity scope not available from current CRM extract.'))
+        profile['sales_strategy'].setdefault('sms_strengths_to_leverage', 'Metallurgical process depth, integrated OEM modernization scope, and lifecycle service execution capability.')
+        profile['sales_strategy'].setdefault('sms_relationship_assessment', profile['history'].get('sms_relationship', 'Relationship assessment not available.'))
         
         return {"profile": profile}
     except Exception as e:

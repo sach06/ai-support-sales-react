@@ -3,7 +3,7 @@ import { useLocation, Link, Outlet } from 'react-router-dom';
 import { useFilterStore } from '../../store/useFilterStore';
 import { useDataStore } from '../../store/useDataStore';
 import { useQuery } from '@tanstack/react-query';
-import { getCountries, getRegions, getEquipmentTypes, getCustomers, getCompanyNames, loadData, getLoadProgress, getDataStatus } from '../../api/dataApi';
+import { getCountries, getRegions, getEquipmentTypes, getCompanyNames, loadData, getLoadProgress, getDataStatus } from '../../api/dataApi';
 import api from '../../api/client';
 import smsLogo from '../../sms logo.png';
 import './Layout.css';
@@ -27,6 +27,7 @@ const Layout = () => {
     const [loadProgress, setLoadProgress] = useState(null);
     const [rematching, setRematching] = useState(false);
     const [rematchMsg, setRematchMsg] = useState('');
+    const [companySearchTerm, setCompanySearchTerm] = useState('');
     const pollRef = useRef(null);
 
     // Queries to fetch the filter lists (Countries, Regions, Equipment)
@@ -41,16 +42,16 @@ const Layout = () => {
         enabled: dataLoaded
     });
 
-    // Dynamic Company Query - dependant on the state of the parent filters
-    const { data: filteredCustomersData } = useQuery({
-        queryKey: ['filtered_customers', { region, country, equipmentType }],
-        queryFn: () => getCustomers({ region, country, equipment_type: equipmentType, company_name: 'All' }),
-        enabled: dataLoaded
-    });
-
     const activeCompanies = companyNamesList && companyNamesList.length > 0
         ? ['All', ...companyNamesList]
         : ['All'];
+
+    const uniqueCompanies = activeCompanies.filter((item, index, self) => self.indexOf(item) === index);
+    const filteredCompanies = uniqueCompanies.filter((item) => {
+        if (item === 'All') return true;
+        if (!companySearchTerm.trim()) return true;
+        return item.toLowerCase().includes(companySearchTerm.trim().toLowerCase());
+    });
 
     // If an invalid combination occurs, automatically select 'All' for Company Name
     useEffect(() => {
@@ -58,6 +59,12 @@ const Layout = () => {
             setCompanyName('All');
         }
     }, [activeCompanies, companyName, setCompanyName]);
+
+    useEffect(() => {
+        if (companyName && companyName !== 'All') {
+            setCompanySearchTerm(companyName);
+        }
+    }, [companyName]);
 
     // Progress polling
     const stopPolling = useCallback(() => {
@@ -175,7 +182,7 @@ const Layout = () => {
     const navigation = [
         { name: 'Overview', href: '/' },
         { name: 'Priority Ranking', href: '/ranking' },
-        { name: 'Customer Details', href: '/customer' },
+        { name: 'Customer Profile', href: '/customer' },
     ];
 
     const effectiveProgress = loadProgress || (dataLoaded
@@ -242,9 +249,27 @@ const Layout = () => {
 
                             <div className="form-group">
                                 <label>Company Name</label>
-                                <select value={companyName} onChange={(e) => setCompanyName(e.target.value)} title="Deep dive into a specific customer">
-                                    {activeCompanies.filter((item, index, self) => self.indexOf(item) === index).map(item => <option key={item} value={item}>{item}</option>)}
+                                <input
+                                    type="text"
+                                    className="company-search-input"
+                                    placeholder="Search company..."
+                                    value={companySearchTerm}
+                                    onChange={(e) => setCompanySearchTerm(e.target.value)}
+                                />
+                                <select
+                                    value={companyName}
+                                    onChange={(e) => {
+                                        const selected = e.target.value;
+                                        setCompanyName(selected);
+                                        if (selected !== 'All') {
+                                            setCompanySearchTerm(selected);
+                                        }
+                                    }}
+                                    title="Deep dive into a specific customer"
+                                >
+                                    {filteredCompanies.map(item => <option key={item} value={item}>{item}</option>)}
                                 </select>
+                                <div className="company-filter-hint">Showing {filteredCompanies.length} of {uniqueCompanies.length} companies</div>
                             </div>
                         </div>
                     )}

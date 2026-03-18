@@ -3,6 +3,9 @@ Ranking API Routes — wraps MLRankingService for React frontend consumption.
 """
 from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
+from functools import lru_cache
+import re
+import unicodedata
 import sys
 import threading
 import time
@@ -12,7 +15,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from app.services.ml_ranking_service import ml_ranking_service
-from app.utils.json_utils import df_to_json_safe
+import app.services.historical_service as historical_service
+from app.services.web_enrichment_service import web_enrichment_service
 import json
 
 router = APIRouter()
@@ -81,22 +85,123 @@ def _knowledge_feature_dict(record: dict) -> dict:
         "knowledge_quality_signal": float(record.get("knowledge_quality_signal", 0) or 0),
     }
 
+
+def _normalize_company_name(name: str) -> str:
+    raw = str(name or "").strip().lower()
+    if not raw:
+        return ""
+    ascii_name = unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "", ascii_name)
+
+
+def _company_matches(candidate_name: str, target_name: str) -> bool:
+    candidate_norm = _normalize_company_name(candidate_name)
+    target_norm = _normalize_company_name(target_name)
+    if not candidate_norm or not target_norm:
+        return False
+    if candidate_norm == target_norm:
+        return True
+    # Accept close legal-entity variations, e.g. suffix differences.
+    return (
+        candidate_norm.startswith(target_norm)
+        or target_norm.startswith(candidate_norm)
+        or candidate_norm in target_norm
+        or target_norm in candidate_norm
+    )
+
+
+def _build_competitor_deep_dive(equipment_type: str | None, country: str | None, company_name: str | None) -> list[dict]:
+    eq = equipment_type or "selected equipment"
+    market = country or "the selected market"
+    account = company_name or "the selected customer"
+
+    return [
+        {
+            "competitor": "Primetals Technologies",
+            "positioning": "Integrated steel plant packages with strong electrical and automation depth.",
+            "threat_on_selected_scope": f"High if the customer seeks full-line modernization around {eq} with bundled digital stack.",
+            "sms_counter_strategy": (
+                f"Position SMS with performance-guaranteed scope, faster brownfield integration, and lifecycle service economics for {account} in {market}."
+            ),
+        },
+        {
+            "competitor": "Danieli Group",
+            "positioning": "Aggressive capex offers and broad equipment portfolio in steel and non-ferrous.",
+            "threat_on_selected_scope": f"High on cost-competitive bids, especially where replacement timing for {eq} is imminent.",
+            "sms_counter_strategy": (
+                "Lead with total-cost-of-ownership proof, reference performance, and phased modernization roadmap that reduces shutdown risk."
+            ),
+        },
+        {
+            "competitor": "Tenova",
+            "positioning": "Strong sustainability and process optimization narrative in metals and mining.",
+            "threat_on_selected_scope": f"Medium-to-high when decarbonization and energy intensity are core decision factors for {account}.",
+            "sms_counter_strategy": (
+                "Anchor on measurable decarbonization outcomes plus operational KPIs: yield stability, specific energy, and uptime."
+            ),
+        },
+        {
+            "competitor": "Thyssenkrupp Industrial Solutions",
+            "positioning": "Large-scale plant engineering and EPC integration strengths.",
+            "threat_on_selected_scope": "Medium for complex EPC-driven decisions with broad stakeholder governance.",
+            "sms_counter_strategy": (
+                "Differentiate via metallurgical process specialization and faster implementation cadence at critical bottleneck assets."
+            ),
+        },
+        {
+            "competitor": "Fives Group",
+            "positioning": "Niche strength in selected thermal/process lines and modernization projects.",
+            "threat_on_selected_scope": f"Medium where focused upgrades around {eq} can be split into smaller packages.",
+            "sms_counter_strategy": (
+                "Propose integrated package architecture where service, automation, and core process equipment deliver one accountable outcome."
+            ),
+        },
+    ]
+
+
+@lru_cache(maxsize=64)
+def _cached_country_intelligence(country: str) -> dict:
+    return web_enrichment_service.get_country_intelligence(country) or {}
+
 @router.get("/list")
 def get_ranked_list(
     equipment_type: Optional[str] = Query(default=None),
     country: Optional[str] = Query(default=None),
+    company_name: Optional[str] = Query(default=None),
     top_k: int = Query(default=50),
     force_heuristic: bool = Query(default=False)
 ):
     try:
+        company_filter = company_name.strip() if company_name and company_name != "All" else None
+
+        # If a specific company is selected, request a broader candidate set once on the backend.
+        # This avoids frontend over-fetch while ensuring the selected company can be pinned.
+        effective_top_k = None if company_filter else top_k
+
         df = ml_ranking_service.get_ranked_list(
             equipment_type=equipment_type if equipment_type != "All Equipment Types" else None,
             country=country if country != "All Countries" else None,
-            top_k=top_k,
+            top_k=effective_top_k,
             force_heuristic=force_heuristic
         )
         if df.empty:
             return {"rankings": []}
+
+        if company_filter:
+            records_all = df.to_dict(orient="records")
+            selected = None
+            others = []
+            for rec in records_all:
+                rec_company = str(rec.get("company") or "").strip()
+                if selected is None and _company_matches(rec_company, company_filter):
+                    selected = rec
+                else:
+                    others.append(rec)
+
+            limited = others[: max(0, top_k - 1)] if top_k else others
+            records = ([selected] if selected else []) + limited
+        else:
+            records = df.to_dict(orient="records")
 
         feature_explanations = {
             "equipment_age": "Older assets typically indicate stronger modernization demand and higher replacement potential.",
@@ -106,9 +211,9 @@ def get_ranked_list(
             "log_fte": "Larger organizations often have broader capex programs and better ability to fund major revamp projects.",
             "equipment_type_enc": "Certain equipment classes are structurally more likely to require upgrades based on lifecycle and process criticality.",
             "country_enc": "Country context captures structural market effects such as policy pressure, cost base, and investment cycles.",
-            "knowledge_doc_count": "A larger body of internal project and service references indicates stronger institutional knowledge and more proven touchpoints.",
-            "knowledge_best_match_score": "Strong document matches suggest direct evidence linking the account to SMS project, quality, or service history.",
-            "knowledge_avg_match_score": "Consistently relevant internal evidence raises confidence that the account is strategically actionable.",
+            "knowledge_doc_count": "How many relevant SMS references we found for this account. More references usually means a warmer entry point.",
+            "knowledge_best_match_score": "How strong the single best SMS reference is compared to this customer. Higher means a very similar proven case.",
+            "knowledge_avg_match_score": "How relevant our full set of matched references is on average. Higher means the account fits our historical strengths.",
             "knowledge_service_signal": "Service-heavy internal evidence points to spare parts, maintenance, and long-term service potential.",
             "knowledge_inspection_signal": "Inspection and acceptance evidence indicates recent technical interaction and a route into follow-on upgrades.",
             "knowledge_modernization_signal": "Upgrade and revamp references point to capex appetite and modernization demand.",
@@ -132,8 +237,7 @@ def get_ranked_list(
                 "log_fte": 0.7,
             }
             
-        # Convert to records
-        records = df.to_dict(orient="records")
+        # Enrich records for frontend explanation and badges.
         for rec in records:
             age = rec.get("equipment_age", 0)
             if age >= 30:
@@ -159,8 +263,8 @@ def get_ranked_list(
                     **enriched,
                 })
                 rec["knowledge_summary"] = (
-                    f"{int(rec.get('knowledge_doc_count', 0) or 0)} matched internal docs; "
-                    f"dominant theme: {top_theme}."
+                    f"{int(rec.get('knowledge_doc_count', 0) or 0)} relevant SMS references found; "
+                    f"strongest evidence theme: {top_theme}."
                 )
             else:
                 rec["knowledge_summary"] = "No matched internal evidence for this account."
@@ -219,4 +323,60 @@ def get_retrain_status():
         state = dict(_retrain_state)
     from app.utils.json_utils import json_safe_sanitize
     return json_safe_sanitize(state)
+
+
+@router.get("/company-intelligence")
+def get_company_intelligence(
+    company_name: str = Query(...),
+    equipment_type: Optional[str] = Query(default=None),
+    country: Optional[str] = Query(default=None),
+):
+    """Return selected-company deep dive context for ranking analytics cards."""
+    try:
+        history = historical_service.get_yearly_performance(company_name)
+        metrics = history.get("metrics", {}) if isinstance(history, dict) else {}
+
+        won_list = history.get("won_list") if isinstance(history, dict) else None
+        lost_list = history.get("lost_list") if isinstance(history, dict) else None
+        yearly_df = history.get("yearly_df") if isinstance(history, dict) else None
+
+        won_count = int(len(won_list)) if won_list is not None else 0
+        lost_count = int(len(lost_list)) if lost_list is not None else 0
+        won_value = float(metrics.get("total_won_value", 0) or 0)
+
+        yearly_records = []
+        if yearly_df is not None and not yearly_df.empty:
+            yearly_records = yearly_df.to_dict(orient="records")
+
+        country_news = _cached_country_intelligence(country or "global")
+        steel_news = country_news.get("steel_news", [])[:2] if isinstance(country_news, dict) else []
+        news_headlines = [item.get("title", "") for item in steel_news if item.get("title")]
+
+        deep_dive_summary = (
+            f"Account '{company_name}' shows {won_count} won and {lost_count} non-won historical projects in CRM. "
+            f"Total recorded won value: EUR {won_value:,.0f}. "
+            f"For {equipment_type or 'the selected equipment'}, prioritize proposals that connect capex decisions to uptime, yield, energy intensity, and lifecycle service capture."
+        )
+
+        if news_headlines:
+            deep_dive_summary += " Recent market context: " + " | ".join(news_headlines)
+
+        payload = {
+            "company_name": company_name,
+            "won_vs_lost": {
+                "won_count": won_count,
+                "lost_count": lost_count,
+                "won_value_eur": won_value,
+                "win_rate_pct": float(metrics.get("win_rate", 0) or 0),
+                "total_projects": int(metrics.get("n_projects", won_count + lost_count) or 0),
+            },
+            "order_intake_history": yearly_records,
+            "competitor_deep_dive": _build_competitor_deep_dive(equipment_type, country, company_name),
+            "deep_dive_summary": deep_dive_summary,
+        }
+
+        from app.utils.json_utils import json_safe_sanitize
+        return json_safe_sanitize(payload)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 

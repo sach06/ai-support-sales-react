@@ -94,6 +94,28 @@
     font-size: 0.9rem;
 }
 
+.company-search-input {
+    width: 100%;
+    padding: 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background-color: var(--surface);
+    color: var(--text-primary);
+    font-size: 0.88rem;
+    margin-bottom: 0.45rem;
+}
+
+.company-search-input:focus {
+    outline: 2px solid rgba(31, 71, 136, 0.2);
+    border-color: var(--primary);
+}
+
+.company-filter-hint {
+    margin-top: 0.35rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
 .btn-primary {
     width: 100%;
     padding: 0.75rem;

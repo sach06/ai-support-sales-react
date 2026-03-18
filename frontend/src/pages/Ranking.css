@@ -60,6 +60,7 @@
     display: flex;
     gap: 1.5rem;
     flex-wrap: wrap;
+    align-items: stretch;
 }
 
 .table-section {
@@ -69,6 +70,9 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    min-height: 860px;
 }
 
 .explainer-section {
@@ -80,6 +84,7 @@
     padding: 1.5rem;
     display: flex;
     flex-direction: column;
+    min-height: 860px;
 }
 
 .explainer-panel {
@@ -97,7 +102,9 @@
 }
 
 .table-scroll-wrapper {
-    max-height: 500px;
+    height: min(74vh, 760px);
+    min-height: 700px;
+    max-height: 760px;
     overflow-y: auto;
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -117,8 +124,17 @@
 }
 
 .clickable-row.row-selected {
-    background-color: rgba(43, 108, 176, 0.1);
-    border-left: 3px solid #2b6cb0;
+    background-color: rgba(31, 71, 136, 0.18);
+    border-left: 4px solid #1f4788;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    box-shadow: 0 2px 0 rgba(31, 71, 136, 0.25);
+}
+
+.clickable-row.row-selected td {
+    font-weight: 700;
+    background-color: rgba(31, 71, 136, 0.18);
 }
 
 /* Pinned row — globally selected company */
@@ -297,4 +313,58 @@
 
 .chart-full-width {
     min-width: 100%;
+}
+
+.intel-kpi-strip {
+    margin-top: 0.25rem;
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.deep-dive-summary {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    color: var(--text-primary);
+    line-height: 1.45;
+}
+
+.competitor-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+}
+
+.competitor-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    background: var(--surface);
+}
+
+.competitor-card h5 {
+    margin: 0 0 0.5rem;
+    font-size: 0.95rem;
+    color: var(--primary);
+}
+
+.competitor-card p {
+    margin: 0.35rem 0;
+    font-size: 0.86rem;
+    line-height: 1.4;
+}
+
+@media (max-width: 1200px) {
+    .table-section,
+    .explainer-section {
+        min-height: auto;
+    }
+
+    .table-scroll-wrapper {
+        min-height: 560px;
+        max-height: 620px;
+        height: min(68vh, 620px);
+    }
 }

@@ -561,6 +561,99 @@ CRITICAL INSTRUCTIONS:
 - You must write with high analytical depth and evidence density while keeping output complete and coherent in a single response.
 - Use '\n\n' for paragraph spacing in long strings to ensure frontend readability.
 - Deliver executive, evidence-led SMS-level analysis. No marketing fluff, no emojis, no placeholder phrases."""
+
+    def generate_ppt_outline(self, customer_name: str, profile_data: Dict, crm_history: Optional[Dict] = None) -> list[dict]:
+        """Generate an executive PPT slide outline from profile data via LLM, with deterministic fallback."""
+        history = crm_history or {}
+        yearly = history.get('yearly_df') if isinstance(history, dict) else None
+        yearly_rows = []
+        if yearly is not None and hasattr(yearly, 'to_dict'):
+            try:
+                yearly_rows = yearly.to_dict(orient='records')[:8]
+            except Exception:
+                yearly_rows = []
+
+        fallback_outline = [
+            {
+                "title": f"{customer_name}: Executive Snapshot",
+                "bullets": [
+                    f"Priority score: {profile_data.get('priority_analysis', {}).get('priority_score', 'N/A')}",
+                    f"Primary focus: {profile_data.get('basic_data', {}).get('company_focus', 'N/A')}",
+                    "Sales objective: convert equipment lifecycle pressure into modernization and long-term service scope.",
+                ],
+            },
+            {
+                "title": "Strategic Opportunity",
+                "bullets": [
+                    str(profile_data.get('priority_analysis', {}).get('key_opportunity_drivers', 'Opportunity drivers not available')),
+                    str(profile_data.get('sales_strategy', {}).get('value_proposition', 'Value proposition not available')),
+                    str(profile_data.get('sales_strategy', {}).get('suggested_next_steps', 'Next steps not available')),
+                ],
+            },
+            {
+                "title": "Risk, Competition, And Action Plan",
+                "bullets": [
+                    str(profile_data.get('market_intelligence', {}).get('market_position', 'Market positioning not available')),
+                    str(profile_data.get('metallurgical_insights', {}).get('technical_bottlenecks', 'Technical bottlenecks not available')),
+                    "Recommended account action: align commercial narrative to uptime, yield, energy, and CO2 outcomes with clear phased scope.",
+                ],
+            },
+        ]
+
+        if not self.client:
+            return fallback_outline
+
+        compact_profile = {
+            "basic_data": profile_data.get("basic_data", {}),
+            "priority_analysis": profile_data.get("priority_analysis", {}),
+            "history": profile_data.get("history", {}),
+            "market_intelligence": profile_data.get("market_intelligence", {}),
+            "metallurgical_insights": profile_data.get("metallurgical_insights", {}),
+            "sales_strategy": profile_data.get("sales_strategy", {}),
+            "order_intake_history": yearly_rows,
+        }
+
+        prompt = (
+            "Create a concise board-ready PPT outline for SMS group account management. "
+            "Return strict JSON array only, where each item is {title: string, bullets: string[3..5]}. "
+            "Use max 8 slides. Focus on actionable steel-equipment sales strategy, competition, and risk.\n\n"
+            f"CUSTOMER: {customer_name}\n"
+            f"PROFILE DATA: {json.dumps(compact_profile, cls=NumpyEncoder)[:14000]}"
+        )
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You generate concise executive slide outlines. Return valid JSON only.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_tokens=1400,
+                timeout=90,
+                response_format={"type": "json_object"},
+            )
+            parsed = self._extract_json(response.choices[0].message.content)
+            slides = parsed.get('slides') if isinstance(parsed, dict) else None
+            if isinstance(slides, list) and slides:
+                normalized = []
+                for item in slides[:8]:
+                    if not isinstance(item, dict):
+                        continue
+                    title = str(item.get('title', 'Untitled Slide')).strip()
+                    bullets = item.get('bullets') if isinstance(item.get('bullets'), list) else []
+                    bullets = [str(b).strip() for b in bullets if str(b).strip()][:5]
+                    if bullets:
+                        normalized.append({"title": title, "bullets": bullets})
+                if normalized:
+                    return normalized
+        except Exception:
+            pass
+
+        return fallback_outline
     
     def _generate_fallback_profile(self, customer_data: Dict, extra_context: Optional[Dict] = None) -> Dict:
         """Generate a structured, data-driven fallback profile when LLM output is unavailable."""

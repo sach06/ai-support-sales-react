@@ -2,18 +2,55 @@ import React from 'react';
 import { useReactTable, getCoreRowModel, flexRender, getSortedRowModel, getPaginationRowModel } from '@tanstack/react-table';
 import OpportunityBadge from './OpportunityBadge';
 
+const normalizeCompanyName = (name) => {
+    if (!name) return '';
+    return String(name)
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z0-9]/g, '')
+        .toLowerCase();
+};
+
+const isCompanyMatch = (candidate, target) => {
+    const a = normalizeCompanyName(candidate);
+    const b = normalizeCompanyName(target);
+    if (!a || !b) return false;
+    return a === b || a.startsWith(b) || b.startsWith(a) || a.includes(b) || b.includes(a);
+};
+
+const formatEvidenceStrength = (score) => {
+    if (score >= 8) return 'Very strong';
+    if (score >= 6) return 'Strong';
+    if (score >= 4) return 'Moderate';
+    if (score > 0) return 'Early signal';
+    return 'No match yet';
+};
+
 const RankingTable = ({ data, onRowSelect, selectedId, pinnedCompany }) => {
-    // Normalise pinned company for case-insensitive comparison
+    // Normalise pinned company for resilient matching across legal suffix variants.
     const pinnedNorm = pinnedCompany && pinnedCompany !== 'All'
-        ? pinnedCompany.trim().toLowerCase()
+        ? normalizeCompanyName(pinnedCompany)
         : null;
 
     const columns = React.useMemo(() => [
         {
             header: 'Rank',
-            accessorFn: (row, i) => i + 1,
+            accessorFn: (row) => row.display_rank ?? row.original_rank,
             id: 'rank',
-            cell: info => <div style={{ fontWeight: 'bold', width: '30px' }}>{info.getValue()}</div>
+            cell: info => {
+                const row = info.row.original;
+                const isPinned = pinnedNorm && row.company && isCompanyMatch(row.company, pinnedNorm);
+                return (
+                    <div style={{ fontWeight: 'bold', width: '74px' }} title={row.original_rank ? `Model rank: ${row.original_rank}` : undefined}>
+                        {info.getValue()}
+                        {isPinned && row.original_rank ? (
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginLeft: '0.25rem' }}>
+                                ({row.original_rank})
+                            </span>
+                        ) : null}
+                    </div>
+                );
+            }
         },
         {
             header: 'Confidence',
@@ -31,7 +68,7 @@ const RankingTable = ({ data, onRowSelect, selectedId, pinnedCompany }) => {
             accessorKey: 'company',
             cell: info => {
                 const name = info.getValue();
-                const isPinned = pinnedNorm && name && name.trim().toLowerCase() === pinnedNorm;
+                const isPinned = pinnedNorm && name && isCompanyMatch(name, pinnedNorm);
                 return (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600' }}>
                         {isPinned && (
@@ -60,19 +97,21 @@ const RankingTable = ({ data, onRowSelect, selectedId, pinnedCompany }) => {
             accessorKey: 'equipment_type'
         },
         {
-            header: 'Internal Evidence',
+            header: 'SMS Past Experience Fit',
             accessorKey: 'knowledge_doc_count',
             cell: info => {
                 const docs = Math.round(Number(info.getValue() || 0));
                 const best = Number(info.row.original.knowledge_best_match_score || 0);
-                const theme = info.row.original.knowledge_summary || 'No internal evidence';
+                const avg = Number(info.row.original.knowledge_avg_match_score || 0);
+                const theme = info.row.original.knowledge_summary || 'No relevant SMS references yet.';
                 return (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', maxWidth: '220px' }}>
                         <span style={{ fontWeight: 600, color: docs > 0 ? 'var(--primary)' : 'var(--text-secondary)' }}>
-                            {docs > 0 ? `${docs} docs` : 'No docs'}
+                            {docs > 0 ? `${docs} relevant SMS references` : 'No relevant references yet'}
                         </span>
                         <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                            Best match: {best.toFixed(1)}
+                            Similarity strength: {formatEvidenceStrength(best)}
+                            {avg > 0 ? ` (overall ${avg.toFixed(1)})` : ''}
                         </span>
                         <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
                             {theme}
@@ -103,7 +142,7 @@ const RankingTable = ({ data, onRowSelect, selectedId, pinnedCompany }) => {
         getSortedRowModel: getSortedRowModel(),
         getPaginationRowModel: getPaginationRowModel(),
         initialState: {
-            pagination: { pageSize: 10 }
+            pagination: { pageSize: 20 }
         }
     });
 
@@ -113,7 +152,7 @@ const RankingTable = ({ data, onRowSelect, selectedId, pinnedCompany }) => {
         <div className="ranking-table-container">
             {pinnedNorm && (
                 <div className="pinned-company-notice">
-                    ⭐ Highlighting <strong>{pinnedCompany}</strong> — your selected company from Global Filters
+                    ⭐ Showing <strong>{pinnedCompany}</strong> first. Original model rank is shown in brackets.
                 </div>
             )}
             <div className="table-scroll-wrapper">
@@ -138,7 +177,7 @@ const RankingTable = ({ data, onRowSelect, selectedId, pinnedCompany }) => {
                         {table.getRowModel().rows.map(row => {
                             const isSelected = selectedId === row.original.company;
                             const isPinned = pinnedNorm && row.original.company &&
-                                row.original.company.trim().toLowerCase() === pinnedNorm;
+                                isCompanyMatch(row.original.company, pinnedNorm);
                             return (
                                 <tr
                                     key={row.id}

@@ -1,9 +1,14 @@
 import React, { useState } from 'react';
+import Plot from 'react-plotly.js';
 
 const ProfileSections = ({ profile }) => {
     const [activeTab, setActiveTab] = useState('basic');
 
     if (!profile) return null;
+
+    const asArray = (value) => (Array.isArray(value) ? value : []);
+    const asObject = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
+    const asText = (value) => (typeof value === 'string' ? value : (value == null ? '' : String(value)));
 
     const tabs = [
         { id: 'basic', label: 'Basic Data' },
@@ -36,6 +41,18 @@ const ProfileSections = ({ profile }) => {
                 <h4>Total Employees</h4>
                 <p>{profile?.basic_data?.fte || 'N/A'}</p>
             </div>
+            <div className="data-group">
+                <h4>Ownership Type</h4>
+                <p>{profile?.basic_data?.ownership_type || profile?.basic_data?.owner || 'N/A'}</p>
+            </div>
+            <div className="data-group full-width">
+                <h4>Board And Management Deep Dive</h4>
+                <p>{profile?.basic_data?.management_deep_dive || profile?.basic_data?.management || 'N/A'}</p>
+            </div>
+            <div className="data-group full-width">
+                <h4>Decision Dynamics</h4>
+                <p>{profile?.basic_data?.decision_governance || 'N/A'}</p>
+            </div>
             <div className="data-group full-width">
                 <h4>Recent Facts & Overview</h4>
                 <p>{profile?.basic_data?.recent_facts || 'No description available.'}</p>
@@ -44,7 +61,7 @@ const ProfileSections = ({ profile }) => {
     );
 
     const renderLocations = () => {
-        const sites = profile?.locations || [];
+        const sites = asArray(profile?.locations);
 
         return (
             <div className="tab-content locations-grid">
@@ -82,7 +99,7 @@ const ProfileSections = ({ profile }) => {
                                             <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: '500' }}>{site.country || 'Unknown Country'}</span>
                                         </div>
                                         <div style={{ textAlign: 'right' }}>
-                                            <div style={{ fontWeight: '700', color: 'var(--primary)', fontSize: '1rem' }}>{site.tons_per_year ? `${site.tons_per_year.toLocaleString()} t/y` : 'N/A capacity'}</div>
+                                            <div style={{ fontWeight: '700', color: 'var(--primary)', fontSize: '1rem' }}>{site.tons_per_year ? `${site.tons_per_year} t/y` : 'N/A capacity'}</div>
                                             <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Capacity</div>
                                         </div>
                                     </div>
@@ -92,11 +109,11 @@ const ProfileSections = ({ profile }) => {
                                         <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: '500' }}>{site.final_products || 'General Steel Products'}</div>
                                     </div>
 
-                                    {site.installed_base && site.installed_base.length > 0 && (
+                                    {asArray(site.installed_base).length > 0 && (
                                         <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
                                             <div style={{ fontSize: '0.7rem', fontWeight: '800', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '0.6rem', letterSpacing: '0.5px' }}>Installed Equipment</div>
                                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-                                                {site.installed_base.map((eq, idx) => (
+                                                {asArray(site.installed_base).map((eq, idx) => (
                                                     <span key={idx} style={{
                                                         background: 'var(--primary)',
                                                         color: 'white',
@@ -134,12 +151,60 @@ const ProfileSections = ({ profile }) => {
                 <p><strong>Latest Projects:</strong> {profile?.history?.latest_projects || 'N/A'}</p>
                 <p><strong>History:</strong> {profile?.basic_data?.ownership_history || 'N/A'}</p>
             </div>
+            <div className="history-section">
+                <h4>Active Opportunity Deep Dive</h4>
+                <p>{profile?.history?.active_opportunity_deep_dive || 'No active opportunity deep dive available yet.'}</p>
+            </div>
+            {Array.isArray(profile?.order_intake_history) && profile.order_intake_history.length > 0 && (
+                <div className="history-section">
+                    <h4>Order Intake History (EUR)</h4>
+                    <Plot
+                        data={[
+                            {
+                                x: profile.order_intake_history.map((row) => row.year),
+                                y: profile.order_intake_history.map((row) => row.amount_eur || 0),
+                                type: 'bar',
+                                marker: { color: '#1f4788' },
+                            }
+                        ]}
+                        layout={{
+                            margin: { t: 10, b: 40, l: 60, r: 20 },
+                            paper_bgcolor: 'transparent',
+                            plot_bgcolor: 'transparent',
+                            xaxis: { title: 'Year' },
+                            yaxis: { title: 'Amount (EUR)' },
+                        }}
+                        useResizeHandler={true}
+                        style={{ width: '100%', height: '260px' }}
+                    />
+                    <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', marginTop: '0.5rem' }}>
+                        <thead>
+                            <tr style={{ borderBottom: '2px solid var(--border)' }}>
+                                <th style={{ padding: '0.75rem 0.5rem' }}>Year</th>
+                                <th style={{ padding: '0.75rem 0.5rem' }}>Amount (EUR)</th>
+                                <th style={{ padding: '0.75rem 0.5rem' }}>Won Value (EUR)</th>
+                                <th style={{ padding: '0.75rem 0.5rem' }}>Win Rate %</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {profile.order_intake_history.map((row, i) => (
+                                <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                                    <td style={{ padding: '0.6rem 0.5rem' }}>{row.year}</td>
+                                    <td style={{ padding: '0.6rem 0.5rem' }}>{(row.amount_eur || 0).toLocaleString()}</td>
+                                    <td style={{ padding: '0.6rem 0.5rem' }}>{(row.won_value_eur || 0).toLocaleString()}</td>
+                                    <td style={{ padding: '0.6rem 0.5rem' }}>{(row.win_rate_pct || 0).toFixed(1)}%</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
         </div>
     );
 
     const renderFinancial = () => {
-        const fh = profile?.financial_history || [];
-        const latest = profile?.latest_balance_sheet || {};
+        const fh = asArray(profile?.financial_history);
+        const latest = asObject(profile?.latest_balance_sheet);
         return (
             <div className="tab-content financial-grid">
                 <div className="financial-card full-width">
@@ -200,7 +265,7 @@ const ProfileSections = ({ profile }) => {
                         flexDirection: 'column',
                         gap: '1rem'
                     }}>
-                        {profile.priority_analysis.company_explainer.split('\n').filter(p => p.trim()).map((p, i) => (
+                        {asText(profile?.priority_analysis?.company_explainer).split('\n').filter(p => p.trim()).map((p, i) => (
                             <p key={i} style={{ margin: 0 }}>{p}</p>
                         ))}
                     </div>
@@ -211,6 +276,11 @@ const ProfileSections = ({ profile }) => {
                 <h4>Strategic Outlook & Market Position</h4>
                 <p><strong>Market Position:</strong> {profile?.market_intelligence?.market_position || 'N/A'}</p>
                 <p><strong>Outlook:</strong> {profile?.market_intelligence?.strategic_outlook || 'N/A'}</p>
+            </div>
+            <div className="strategy-section">
+                <h4>SMS Group Relationship And Leverage Points</h4>
+                <p><strong>Relationship Assessment:</strong> {profile?.history?.sms_relationship || profile?.sales_strategy?.sms_relationship_assessment || 'N/A'}</p>
+                <p><strong>SMS Strengths To Leverage:</strong> {profile?.sales_strategy?.sms_strengths_to_leverage || 'N/A'}</p>
             </div>
             <div className="strategy-section">
                 <h4>Decarbonization / Tech Insights</h4>
@@ -226,9 +296,14 @@ const ProfileSections = ({ profile }) => {
     );
 
     const renderEvidence = () => {
-        const evidence = profile?.internal_knowledge_evidence || [];
-        const signals = profile?.internal_knowledge_signals || {};
-        const references = profile?.references || [];
+        const evidence = asArray(profile?.internal_knowledge_evidence);
+        const signals = asObject(profile?.internal_knowledge_signals);
+        const referencesRaw = profile?.references;
+        const references = Array.isArray(referencesRaw)
+            ? referencesRaw
+            : asText(referencesRaw).trim()
+                ? [asText(referencesRaw)]
+                : [];
         const rankedSignals = Object.entries(signals)
             .filter(([key]) => key.endsWith('_signal'))
             .sort((a, b) => b[1] - a[1]);
@@ -281,9 +356,9 @@ const ProfileSections = ({ profile }) => {
                                         </div>
                                         <span className="evidence-score">Match {item.score}</span>
                                     </div>
-                                    {item.topics?.length > 0 && (
+                                    {asArray(item.topics).length > 0 && (
                                         <div className="evidence-topics">
-                                            {item.topics.map((topic) => (
+                                            {asArray(item.topics).map((topic) => (
                                                 <span className="evidence-topic" key={topic}>{topic}</span>
                                             ))}
                                         </div>

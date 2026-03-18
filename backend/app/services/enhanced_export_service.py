@@ -807,6 +807,100 @@ class EnhancedExportService:
         safe_name = safe_name.replace(' ', '_')
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         return f"{safe_name}_{timestamp}.{extension}"
+
+    def generate_comprehensive_pptx(
+        self,
+        customer_name: str,
+        profile_data: Dict,
+        customer_data: Dict,
+        crm_history: Optional[Dict] = None,
+        ai_slide_outline: Optional[List[Dict]] = None,
+    ) -> BytesIO:
+        """Generate customer profile PPTX deck with executive summary and action slides."""
+        try:
+            from pptx import Presentation
+            from pptx.util import Inches, Pt
+        except ImportError as exc:
+            raise RuntimeError("python-pptx is required for PPTX export. Install with: pip install python-pptx") from exc
+
+        prs = Presentation()
+
+        title_slide_layout = prs.slide_layouts[0]
+        slide = prs.slides.add_slide(title_slide_layout)
+        slide.shapes.title.text = "Customer Profile"
+        subtitle = slide.placeholders[1]
+        subtitle.text = f"{customer_name}\nGenerated {datetime.now().strftime('%Y-%m-%d')}"
+
+        kpis = {
+            "Priority Score": profile_data.get('priority_analysis', {}).get('priority_score', 'N/A'),
+            "SMS Relationship": profile_data.get('history', {}).get('sms_relationship', 'N/A'),
+            "Industry Focus": profile_data.get('basic_data', {}).get('company_focus', 'N/A'),
+        }
+        kpi_layout = prs.slide_layouts[1]
+        kpi_slide = prs.slides.add_slide(kpi_layout)
+        kpi_slide.shapes.title.text = "Executive Snapshot"
+        body = kpi_slide.shapes.placeholders[1].text_frame
+        body.clear()
+        for idx, (k, v) in enumerate(kpis.items()):
+            p = body.paragraphs[0] if idx == 0 else body.add_paragraph()
+            p.text = f"{k}: {v}"
+            p.level = 0
+
+        if crm_history and isinstance(crm_history, dict):
+            yearly_df = crm_history.get('yearly_df')
+            if yearly_df is not None and not yearly_df.empty:
+                trend_slide = prs.slides.add_slide(prs.slide_layouts[5])
+                trend_slide.shapes.title.text = "Order Intake History"
+                rows = min(len(yearly_df) + 1, 10)
+                cols = 4
+                table_shape = trend_slide.shapes.add_table(rows, cols, Inches(0.6), Inches(1.4), Inches(12.0), Inches(4.6))
+                table = table_shape.table
+                table.cell(0, 0).text = "Year"
+                table.cell(0, 1).text = "Projects"
+                table.cell(0, 2).text = "Total Value (EUR)"
+                table.cell(0, 3).text = "Win Rate %"
+                for i, (_, rec) in enumerate(yearly_df.head(rows - 1).iterrows(), start=1):
+                    table.cell(i, 0).text = str(rec.get('Year', ''))
+                    table.cell(i, 1).text = str(int(rec.get('Projects', 0) or 0))
+                    table.cell(i, 2).text = f"{float(rec.get('Total Value (EUR)', 0) or 0):,.0f}"
+                    table.cell(i, 3).text = f"{float(rec.get('Win Rate %', 0) or 0):.1f}%"
+
+        slides = ai_slide_outline or []
+        for item in slides[:8]:
+            title = str(item.get('title', 'Analysis'))
+            bullets = item.get('bullets', []) if isinstance(item.get('bullets'), list) else []
+
+            content_slide = prs.slides.add_slide(prs.slide_layouts[1])
+            content_slide.shapes.title.text = title
+            text_frame = content_slide.shapes.placeholders[1].text_frame
+            text_frame.clear()
+            for i, bullet in enumerate(bullets[:6]):
+                p = text_frame.paragraphs[0] if i == 0 else text_frame.add_paragraph()
+                p.text = str(bullet)
+                p.level = 0
+                p.font.size = Pt(18)
+
+        final_slide = prs.slides.add_slide(prs.slide_layouts[1])
+        final_slide.shapes.title.text = "SMS Group Recommended Next Steps"
+        final_body = final_slide.shapes.placeholders[1].text_frame
+        final_body.clear()
+        next_steps = str(profile_data.get('sales_strategy', {}).get('suggested_next_steps', '') or '').split('\n')
+        clean_steps = [s.strip('- ').strip() for s in next_steps if s.strip()]
+        if not clean_steps:
+            clean_steps = [
+                "Run joint technical-commercial workshop with customer process and maintenance leads.",
+                "Quantify value case: uptime, yield, energy and CO2 impacts per modernization package.",
+                "Sequence roadmap into service quick wins and capex revamp phases.",
+            ]
+        for i, step in enumerate(clean_steps[:5]):
+            p = final_body.paragraphs[0] if i == 0 else final_body.add_paragraph()
+            p.text = step
+            p.level = 0
+
+        buffer = BytesIO()
+        prs.save(buffer)
+        buffer.seek(0)
+        return buffer
     
     def generate_comprehensive_pdf(
         self,

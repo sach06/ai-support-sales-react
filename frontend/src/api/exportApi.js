@@ -58,3 +58,31 @@ export const exportPdf = async (profile, customerName) => {
     link.click();
     link.remove();
 };
+
+export const exportPptx = async (profile, customerName) => {
+    const response = await api.post('/export/pptx',
+        { profile, customer_name: customerName },
+        { responseType: 'blob' }
+    );
+
+    const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }));
+    const link = document.createElement('a');
+    link.href = url;
+
+    const contentDisposition = response.headers['content-disposition'];
+    const timestamp = new Date().toISOString().replace(/T/, '_').replace(/:/g, '-').split('.')[0];
+    const safeName = customerName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+
+    let fileName = `${safeName}_${timestamp}.pptx`;
+    if (contentDisposition) {
+        const fileNameMatch = contentDisposition.match(/filename\*?=['"]?(?:UTF-\d['"]*)?([^;\r\n"']*)['"]?;?/);
+        if (fileNameMatch && fileNameMatch.length === 2) {
+            fileName = decodeURIComponent(fileNameMatch[1]);
+        }
+    }
+
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+};

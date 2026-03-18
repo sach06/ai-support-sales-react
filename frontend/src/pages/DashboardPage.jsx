@@ -37,6 +37,19 @@ const fetchStats = async ({ queryKey }) => {
     return response.data;
 };
 
+const fetchCustomers = async ({ queryKey }) => {
+    const [_key, filters] = queryKey;
+    const response = await api.get('/data/customers', {
+        params: {
+            country: filters.country,
+            region: filters.region,
+            equipment_type: filters.equipmentType,
+            company_name: filters.companyName,
+        },
+    });
+    return response.data;
+};
+
 const DashboardPage = () => {
     const { country, region, equipmentType, companyName } = useFilterStore();
     const { dataLoaded } = useDataStore();
@@ -56,29 +69,44 @@ const DashboardPage = () => {
         staleTime: 60_000,
     });
 
+    const { data: customerData } = useQuery({
+        queryKey: ['dashboard_customers', filters],
+        queryFn: fetchCustomers,
+        enabled: dataLoaded,
+        staleTime: 60_000,
+    });
+
     const plants = dashboardData?.plants || [];
+    const customers = customerData?.customers || [];
 
-    const metrics = useMemo(() => {
-        const total = plants.length;
-        if (total === 0) return { total: 0, excellent: 0, good: 0, okay: 0, poor: 0 };
-        const counts = plants.reduce((acc, plant) => {
-            const score = plant['Matching Quality %'] || 0;
-            let type = 'Poor';
-            if (score === 100) type = 'Excellent';
-            else if (score >= 80) type = 'Good';
-            else if (score >= 50) type = 'Okay';
+    const customerMetrics = useMemo(() => {
+        const total = customers.length;
+        if (total === 0) {
+            return {
+                total: 0,
+                matchedCrmBcg: 0,
+                crmOnly: 0,
+                bcgOnly: 0,
+            };
+        }
 
-            acc[type] = (acc[type] || 0) + 1;
-            return acc;
-        }, {});
+        const matchedCrmBcg = customers.filter(
+            (row) => Boolean(row.crm_name) && Boolean(row.bcg_name)
+        ).length;
+        const crmOnly = customers.filter(
+            (row) => Boolean(row.crm_name) && !row.bcg_name
+        ).length;
+        const bcgOnly = customers.filter(
+            (row) => Boolean(row.bcg_name) && !row.crm_name
+        ).length;
+
         return {
             total,
-            excellent: counts['Excellent'] || 0,
-            good: counts['Good'] || 0,
-            okay: counts['Okay'] || 0,
-            poor: counts['Poor'] || 0,
+            matchedCrmBcg,
+            crmOnly,
+            bcgOnly,
         };
-    }, [plants]);
+    }, [customers]);
 
     if (!dataLoaded) {
         return (
@@ -96,18 +124,15 @@ const DashboardPage = () => {
         <div className="dashboard-container">
             {/* Top Metrics Row */}
             <div className="metrics-row">
-                <MetricCard title="Total Machines" value={metrics.total} subtitle="In Selection" />
-                <MetricCard title="Excellent Matches" value={metrics.excellent}
-                    subtitle={metrics.total > 0 ? `${Math.round((metrics.excellent / metrics.total) * 100)}% of total` : '0%'}
+                <MetricCard title="Total Customers" value={customerMetrics.total} subtitle="In Current Selection" />
+                <MetricCard title="CRM ↔ BCG Matched" value={customerMetrics.matchedCrmBcg}
+                    subtitle={customerMetrics.total > 0 ? `${Math.round((customerMetrics.matchedCrmBcg / customerMetrics.total) * 100)}% of total` : '0%'}
                     colorClass="metric-excellent" />
-                <MetricCard title="Good Matches" value={metrics.good}
-                    subtitle={metrics.total > 0 ? `${Math.round((metrics.good / metrics.total) * 100)}% of total` : '0%'}
+                <MetricCard title="CRM-Only Customers" value={customerMetrics.crmOnly}
+                    subtitle={customerMetrics.total > 0 ? `${Math.round((customerMetrics.crmOnly / customerMetrics.total) * 100)}% of total` : '0%'}
                     colorClass="metric-good" />
-                <MetricCard title="Okay Matches" value={metrics.okay}
-                    subtitle={metrics.total > 0 ? `${Math.round((metrics.okay / metrics.total) * 100)}% of total` : '0%'}
-                    colorClass="metric-okay" />
-                <MetricCard title="Poor Matches" value={metrics.poor}
-                    subtitle={metrics.total > 0 ? `${Math.round((metrics.poor / metrics.total) * 100)}% of total` : '0%'}
+                <MetricCard title="BCG-Only Customers" value={customerMetrics.bcgOnly}
+                    subtitle={customerMetrics.total > 0 ? `${Math.round((customerMetrics.bcgOnly / customerMetrics.total) * 100)}% of total` : '0%'}
                     colorClass="metric-poor" />
             </div>
 
