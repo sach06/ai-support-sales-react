@@ -2,6 +2,7 @@
 Data ingestion service for loading and merging Excel/CSV files
 """
 import hashlib
+import shutil
 import time
 import threading
 import pandas as pd
@@ -52,6 +53,7 @@ class DataIngestionService:
         self.logs = []
         self._schema_migrated = False  # track one-time schema migration
         self._lock = threading.Lock()  # DuckDB connections are NOT thread-safe
+        self._snapshot_db_path = None
         
     def add_log(self, message: str):
         """Add a log message for the UI"""
@@ -99,11 +101,32 @@ class DataIngestionService:
                     self.conn = duckdb.connect(str(self.db_path), read_only=True)
                     self.add_log("Connected in READ-ONLY mode. (Data loading will be disabled)")
                 except Exception as inner_e:
-                    self.add_log(f"Failed to connect: {inner_e}")
-                    raise inner_e
+                    self.add_log(f"Read-only connection failed: {inner_e}")
+                    self.conn = self._connect_snapshot_copy()
             else:
                 self.add_log(f"Database error: {e}")
                 raise e
+
+    def _connect_snapshot_copy(self):
+        """Create a temporary snapshot copy of the DB for read-only queries when the main file is locked."""
+        temp_dir = settings.BASE_DIR / "temp"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        snapshot_db = temp_dir / "sales_app_snapshot.db"
+        snapshot_wal = temp_dir / "sales_app_snapshot.db.wal"
+        source_wal = Path(f"{self.db_path}.wal")
+
+        try:
+            shutil.copy2(self.db_path, snapshot_db)
+            if source_wal.exists():
+                shutil.copy2(source_wal, snapshot_wal)
+            self._snapshot_db_path = snapshot_db
+            conn = duckdb.connect(str(snapshot_db), read_only=True)
+            self.add_log(f"Connected using snapshot copy at {snapshot_db}. (Read-only mode)")
+            return conn
+        except Exception as snapshot_error:
+            self.add_log(f"Failed to connect via snapshot copy: {snapshot_error}")
+            raise snapshot_error
     
     def list_available_files(self) -> List[str]:
         """List all supported files in the data directory"""
@@ -524,7 +547,21 @@ class DataIngestionService:
                     m.match_score as "Matching Quality %",
                     COALESCE(CAST(m.crm_name AS VARCHAR), CAST(b.company_internal AS VARCHAR)) as name
                 FROM bcg_installed_base b
-                LEFT JOIN company_mappings m ON b.company_internal = m.bcg_name
+                LEFT JOIN (
+                    SELECT bcg_name, crm_name, match_score
+                    FROM (
+                        SELECT
+                            bcg_name,
+                            crm_name,
+                            match_score,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY bcg_name
+                                ORDER BY match_score DESC NULLS LAST, crm_name
+                            ) AS rn
+                        FROM company_mappings
+                    ) ranked
+                    WHERE rn = 1
+                ) m ON b.company_internal = m.bcg_name
                 LEFT JOIN (
                     SELECT name, company_ceo, fte_count FROM crm_data
                 ) c ON COALESCE(CAST(m.crm_name AS VARCHAR), CAST(b.company_internal AS VARCHAR)) = c.name
@@ -539,7 +576,21 @@ class DataIngestionService:
                     CAST(NULL AS VARCHAR) as crm_name,
                     m.match_score as "Matching Quality %"
                 FROM bcg_installed_base b
-                LEFT JOIN company_mappings m ON b.company_internal = m.bcg_name
+                LEFT JOIN (
+                    SELECT bcg_name, crm_name, match_score
+                    FROM (
+                        SELECT
+                            bcg_name,
+                            crm_name,
+                            match_score,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY bcg_name
+                                ORDER BY match_score DESC NULLS LAST, crm_name
+                            ) AS rn
+                        FROM company_mappings
+                    ) ranked
+                    WHERE rn = 1
+                ) m ON b.company_internal = m.bcg_name
                 WHERE 1=1
             """
         params = []
@@ -1252,7 +1303,21 @@ class DataIngestionService:
                     CAST(region AS VARCHAR)            as region,
                     COALESCE(CAST(m.crm_name AS VARCHAR), CAST(b.company_internal AS VARCHAR)) as company_name
                 FROM bcg_installed_base b
-                LEFT JOIN company_mappings m ON b.company_internal = m.bcg_name
+                LEFT JOIN (
+                    SELECT bcg_name, crm_name, match_score
+                    FROM (
+                        SELECT
+                            bcg_name,
+                            crm_name,
+                            match_score,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY bcg_name
+                                ORDER BY match_score DESC NULLS LAST, crm_name
+                            ) AS rn
+                        FROM company_mappings
+                    ) ranked
+                    WHERE rn = 1
+                ) m ON b.company_internal = m.bcg_name
                 WHERE 1=1
             """
             current_year = pd.Timestamp.now().year
@@ -1294,7 +1359,20 @@ class DataIngestionService:
             cap = df["capacity"].dropna()
             age = df["age"].dropna()
             yr  = df["start_year"].dropna()
-            status_counts = df["status"].fillna("Unknown").value_counts().to_dict()
+            def _normalize_status(value: object) -> str:
+                status = str(value or "").strip().lower()
+                if not status:
+                    return "Unknown / Other"
+                if any(k in status for k in ["shutdown", "shut down", "idle", "stopped", "offline", "mothball", "decommission"]):
+                    return "Shutdown / Idle"
+                if any(k in status for k in ["operating", "operational", "active", "running", "in operation", "production"]):
+                    return "Operating"
+                if any(k in status for k in ["commission", "startup", "ramp", "construction"]):
+                    return "Commissioning / Ramp-up"
+                return "Unknown / Other"
+
+            status_norm = df["status"].apply(_normalize_status)
+            status_counts = status_norm.value_counts().to_dict()
             equip_counts  = df["equipment_type"].fillna("Unknown").value_counts().head(15).to_dict()
 
             def _desc(s):

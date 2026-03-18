@@ -23,6 +23,13 @@ class NumpyEncoder(json.JSONEncoder):
 
 class ProfileGeneratorService:
     """Generate comprehensive customer profiles using AI"""
+
+    PRIMARY_TIMEOUT_SECONDS = 45
+    FALLBACK_TIMEOUT_SECONDS = 30
+    REPAIR_TIMEOUT_SECONDS = 20
+    PRIMARY_MAX_TOKENS = 2200
+    FALLBACK_MAX_TOKENS = 1800
+    MAX_CONTEXT_CHARS = 18000
     
     def __init__(self):
         self.client = None
@@ -73,7 +80,9 @@ class ProfileGeneratorService:
             return self._generate_fallback_profile(customer_data)
 
         # Build context from available data
-        context = self._build_context(customer_data, web_data, extra_context or {}, strict_safety=False)
+        context = self._build_context(customer_data, web_data, extra_context or {}, strict_safety=True)
+        if len(context) > self.MAX_CONTEXT_CHARS:
+            context = context[:self.MAX_CONTEXT_CHARS]
 
         # Create prompt for structured profile generation
         prompt = self._create_profile_prompt(context)
@@ -97,8 +106,8 @@ class ProfileGeneratorService:
                     model=self.model,
                     messages=messages,
                     temperature=0.3,
-                    max_tokens=3200,
-                    timeout=120,
+                    max_tokens=self.PRIMARY_MAX_TOKENS,
+                    timeout=self.PRIMARY_TIMEOUT_SECONDS,
                     response_format={"type": "json_object"},
                 )
                 return self._extract_json(response.choices[0].message.content)
@@ -116,8 +125,8 @@ class ProfileGeneratorService:
                 model=self.model,
                 messages=fallback_messages,
                 temperature=0.3,
-                max_tokens=3200,
-                timeout=120,
+                max_tokens=self.FALLBACK_MAX_TOKENS,
+                timeout=self.FALLBACK_TIMEOUT_SECONDS,
             )
             raw_content = response.choices[0].message.content
             try:
@@ -143,38 +152,40 @@ class ProfileGeneratorService:
                     model=self.model,
                     messages=repair_messages,
                     temperature=0.0,
-                    max_tokens=3500,
-                    timeout=90,
+                    max_tokens=self.FALLBACK_MAX_TOKENS,
+                    timeout=self.REPAIR_TIMEOUT_SECONDS,
                 )
                 return self._extract_json(repaired.choices[0].message.content)
 
         except Exception as e:
             err_text = str(e)
-            # Azure may flag prompt as jailbreak when untrusted text contains
-            # instruction-like phrasing. Retry once with strongly sanitized context.
-            if "content_filter" in err_text and "jailbreak" in err_text.lower():
-                try:
-                    safe_context = self._build_compact_safe_context(customer_data, extra_context or {})
-                    safe_prompt = self._create_compact_safe_prompt(safe_context)
-                    safe_messages = [
-                        {
-                            "role": "system",
-                            "content": "Generate a structured business profile in JSON.",
-                        },
-                        {"role": "user", "content": safe_prompt},
-                    ]
-                    repaired = self.client.chat.completions.create(
-                        model=self.model,
-                        messages=safe_messages,
-                        temperature=0.2,
-                        max_tokens=3000,
-                        timeout=90,
-                    )
-                    parsed = self._extract_json(repaired.choices[0].message.content)
-                    parsed["generation_mode"] = "ai_compact_retry"
-                    return parsed
-                except Exception as retry_err:
-                    err_text = f"{err_text} | sanitized_retry_failed: {retry_err}"
+
+            # Always attempt one compact retry before falling back. This handles
+            # timeout, malformed JSON, and occasional content-filter false positives.
+            try:
+                safe_context = self._build_compact_safe_context(customer_data, extra_context or {})
+                safe_prompt = self._create_compact_safe_prompt(safe_context)
+                safe_messages = [
+                    {
+                        "role": "system",
+                        "content": "Generate a structured business profile in JSON.",
+                    },
+                    {"role": "user", "content": safe_prompt},
+                ]
+                compact = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=safe_messages,
+                    temperature=0.2,
+                    max_tokens=self.FALLBACK_MAX_TOKENS,
+                    timeout=self.FALLBACK_TIMEOUT_SECONDS,
+                    response_format={"type": "json_object"},
+                )
+                parsed = self._extract_json(compact.choices[0].message.content)
+                parsed["generation_mode"] = "ai_compact_retry"
+                parsed["generation_warning"] = err_text
+                return parsed
+            except Exception as retry_err:
+                err_text = f"{err_text} | compact_retry_failed: {retry_err}"
 
             print(f"Error generating profile: {err_text}")
             fb = self._generate_fallback_profile(customer_data, extra_context or {})
@@ -461,7 +472,7 @@ Rules:
     def _create_profile_prompt(self, context: str) -> str:
         """Create the prompt for profile generation with expanded JSON schema."""
         return f"""You are an expert industrial strategy consultant, metallurgist, and financial analyst working for SMS group, a global engineering and plant construction company for the steel industry.
-Your task is to generate a highly detailed, executive-level Customer Analysis Report (target depth equivalent to roughly 4 to 8 pages) based on the provided data sources.
+Your task is to generate a detailed, executive-level Customer Analysis Report (target depth equivalent to roughly 2 to 4 pages) based on the provided data sources.
 Maintain a formal, executive consulting tone comparable to BCG, McKinsey, or Goldman Sachs industry deep-dive reports.
 
 METHODOLOGY & CONSTRAINTS:

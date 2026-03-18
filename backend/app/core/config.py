@@ -5,20 +5,22 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Load environment variables from the backend root first, then fall back to a repo-root .env.
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+load_dotenv(BASE_DIR / ".env")
+load_dotenv(BASE_DIR.parent / ".env")
 
 
 class Settings:
     """Application settings"""
 
     # Project paths
-    BASE_DIR = Path(__file__).parent.parent.parent
+    BASE_DIR = BASE_DIR
     DATA_DIR = BASE_DIR / "data"
 
     # Azure OpenAI settings
-    AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "e3ff1ba6c1574444b95fb7cf81284968")
-    AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "https://as-01-app-sms-apim.azure-api.net/oai-oth")
+    AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")
+    AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
     AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1-mini")
     AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview")
 

@@ -41,9 +41,14 @@ const CustomerDetailPage = () => {
         try {
             const result = await generateProfile(companyName);
             setProfileData(result);
+            if (result?.generation_mode === 'fallback') {
+                const detail = result?.generation_error ? ` Details: ${String(result.generation_error).slice(0, 220)}` : '';
+                setErrorMsg(`AI profile generation did not complete cleanly, so a data-driven fallback profile is being shown.${detail}`);
+            }
         } catch (err) {
             console.error("Failed to generate profile:", err);
-            setErrorMsg("Failed to generate AI profile. Ensure Azure OpenAI or OpenAI keys are configured.");
+            const detail = err?.response?.data?.detail || err?.message || 'Unknown backend error.';
+            setErrorMsg(`Failed to generate customer profile. ${detail}`);
         } finally {
             setIsGenerating(false);
         }
