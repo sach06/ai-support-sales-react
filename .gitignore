@@ -5,3 +5,10 @@ data/sales_app.db
 data/sales_app.db.wal  
 __pycache__/  
 .DS_Store 
+backend/data/sales_app.db
+backend/data/sales_app.db.wal
+backend/data/last_profile_status.txt
+backend/data/ranking_list_response.json
+backend/data/ranking_retrain_response.json
+backend/data/internal_knowledge/p_drive_exports/
+backend/temp/
