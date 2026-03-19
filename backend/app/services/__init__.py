@@ -9,6 +9,8 @@ from .project_service import project_service
 from .financial_service import financial_service
 from .enhanced_export_service import enhanced_export_service
 from .visualization_service import visualization_service
+from .external_feature_service import external_feature_service
+from .ranking_reranker_service import ranking_reranker_service
 
 __all__ = [
     "data_service",
@@ -21,5 +23,7 @@ __all__ = [
     "project_service",
     "financial_service",
     "enhanced_export_service",
-    "visualization_service"
+    "visualization_service",
+    "external_feature_service"
+    "ranking_reranker_service",
 ]

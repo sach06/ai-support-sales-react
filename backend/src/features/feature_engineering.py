@@ -29,6 +29,10 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
+from app.services.external_feature_service import (
+    COMPANY_EXTERNAL_FEATURE_COLS,
+    COUNTRY_MARKET_FEATURE_COLS,
+)
 from app.services.internal_knowledge_service import internal_knowledge_service
 
 logger = logging.getLogger(__name__)
@@ -71,6 +75,10 @@ def _normalise_name(name: str) -> str:
     name = re.sub(r"\b(gmbh|co|kg|inc|ltd|llc|corp|ag|sa|spa|nv|bv|as|ab|oy|plc)\b\.?", "", name)
     name = re.sub(r"[^a-z0-9 ]", " ", name)
     return re.sub(r"\s+", " ", name).strip()
+
+
+def _normalise_country(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
 
 
 def _rating_num(rating: str) -> int:
@@ -191,6 +199,53 @@ def load_raw_data_from_conn(conn) -> Tuple[pd.DataFrame, pd.DataFrame]:
     return bcg_df, crm_df
 
 
+def _load_optional_table_from_conn(conn, table_name: str) -> pd.DataFrame:
+    tables = {r[0] for r in conn.execute("SHOW TABLES").fetchall()}
+    if table_name not in tables:
+        return pd.DataFrame()
+    return conn.execute(f"SELECT * FROM {table_name}").df()
+
+
+def load_external_feature_data(db_path: str | Path) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Load cached external company and country features from DuckDB."""
+    import shutil, tempfile
+    db_path = Path(db_path)
+
+    def _connect(path: Path, read_only: bool = True):
+        return duckdb.connect(str(path), read_only=read_only)
+
+    conn = None
+    tmp_path = None
+    try:
+        conn = _connect(db_path, read_only=True)
+    except Exception:
+        tmp_fd, tmp_str = tempfile.mkstemp(suffix=".db")
+        import os; os.close(tmp_fd)
+        tmp_path = Path(tmp_str)
+        shutil.copy2(db_path, tmp_path)
+        conn = _connect(tmp_path, read_only=False)
+
+    try:
+        company_df = _load_optional_table_from_conn(conn, "company_external_features")
+        country_df = _load_optional_table_from_conn(conn, "country_market_features")
+    finally:
+        conn.close()
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+    return company_df, country_df
+
+
+def load_external_feature_data_from_conn(conn) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Load cached external company and country feature tables using an existing connection."""
+    return (
+        _load_optional_table_from_conn(conn, "company_external_features"),
+        _load_optional_table_from_conn(conn, "country_market_features"),
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Label engineering
 # ─────────────────────────────────────────────────────────────────────────────
@@ -247,6 +302,8 @@ def build_labels(bcg_df: pd.DataFrame, crm_df: pd.DataFrame) -> pd.Series:
 def extract_equipment_features(
     bcg_df: pd.DataFrame,
     crm_df: pd.DataFrame,
+    external_company_df: Optional[pd.DataFrame] = None,
+    external_country_df: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """
     Build the feature matrix X (one row per BCG equipment row).
@@ -374,6 +431,57 @@ def extract_equipment_features(
         for col in knowledge_feature_cols:
             df[col] = 0.0
 
+    # ── Stable external enrichment (cached company + country snapshots) ─────
+    external_company_df = external_company_df if external_company_df is not None else pd.DataFrame()
+    external_country_df = external_country_df if external_country_df is not None else pd.DataFrame()
+
+    for col in COMPANY_EXTERNAL_FEATURE_COLS:
+        df[col] = 0.0
+    for col in COUNTRY_MARKET_FEATURE_COLS:
+        df[col] = 0.0
+
+    if company_col and not external_company_df.empty:
+        ext_company = external_company_df.copy()
+        if "company_name_normalized" not in ext_company.columns and "company_name" in ext_company.columns:
+            ext_company["company_name_normalized"] = ext_company["company_name"].map(_normalise_name)
+        ext_company = ext_company.drop_duplicates(subset=["company_name_normalized"], keep="first")
+        df["_company_normalized"] = df[company_col].fillna("").map(_normalise_name)
+        available_company_cols = [col for col in COMPANY_EXTERNAL_FEATURE_COLS if col in ext_company.columns]
+        renamed_company_cols = {col: f"__{col}" for col in available_company_cols}
+        merge_cols = ["company_name_normalized", *available_company_cols]
+        df = df.merge(
+            ext_company[merge_cols].rename(columns=renamed_company_cols),
+            how="left",
+            left_on="_company_normalized",
+            right_on="company_name_normalized",
+        )
+        for col in COMPANY_EXTERNAL_FEATURE_COLS:
+            temp_col = f"__{col}"
+            if temp_col in df.columns:
+                df[col] = pd.to_numeric(df[temp_col], errors="coerce").fillna(df[col])
+                df = df.drop(columns=[temp_col])
+
+    if not external_country_df.empty:
+        ext_country = external_country_df.copy()
+        if "country_normalized" not in ext_country.columns and "country" in ext_country.columns:
+            ext_country["country_normalized"] = ext_country["country"].map(_normalise_country)
+        ext_country = ext_country.drop_duplicates(subset=["country_normalized"], keep="first")
+        df["_country_normalized"] = df["country_raw"].map(_normalise_country)
+        available_country_cols = [col for col in COUNTRY_MARKET_FEATURE_COLS if col in ext_country.columns]
+        renamed_country_cols = {col: f"__{col}" for col in available_country_cols}
+        merge_cols = ["country_normalized", *available_country_cols]
+        df = df.merge(
+            ext_country[merge_cols].rename(columns=renamed_country_cols),
+            how="left",
+            left_on="_country_normalized",
+            right_on="country_normalized",
+        )
+        for col in COUNTRY_MARKET_FEATURE_COLS:
+            temp_col = f"__{col}"
+            if temp_col in df.columns:
+                df[col] = pd.to_numeric(df[temp_col], errors="coerce").fillna(df[col])
+                df = df.drop(columns=[temp_col])
+
     # ── Final feature columns ────────────────────────────────────────────────
     FEATURE_COLS = [
         "equipment_age",
@@ -384,6 +492,8 @@ def extract_equipment_features(
         "log_fte",
         "crm_projects_count",
         *knowledge_feature_cols,
+        *COMPANY_EXTERNAL_FEATURE_COLS,
+        *COUNTRY_MARKET_FEATURE_COLS,
     ]
 
     feat_df = df[FEATURE_COLS].copy()

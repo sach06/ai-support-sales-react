@@ -280,6 +280,18 @@ class XGBPriorityModel:
 
         cols_to_keep = ["_company", "_equipment_type", "_country", "_equipment_age", "priority_score"]
         final_cols = ["company", "equipment_type", "country", "equipment_age", "priority_score"]
+
+        optional_score_cols = [
+            "base_priority_score",
+            "rerank_adjustment",
+            "rerank_recent_mentions",
+            "rerank_recent_sources",
+            "rerank_reasons",
+        ]
+        for col in optional_score_cols:
+            if col in df.columns:
+                cols_to_keep.append(col)
+                final_cols.append(col)
         
         if "_site_city" in df.columns:
             cols_to_keep.append("_site_city")
@@ -299,6 +311,34 @@ class XGBPriorityModel:
             "knowledge_quality_signal",
         ]
         for col in knowledge_cols:
+            if col in df.columns:
+                cols_to_keep.append(col)
+                final_cols.append(col)
+
+        external_cols = [
+            "ext_news_article_count_180d",
+            "ext_news_unique_source_count_180d",
+            "ext_news_days_since_last_mention",
+            "ext_news_capex_signal",
+            "ext_news_modernization_signal",
+            "ext_news_decarbonization_signal",
+            "ext_news_restructuring_signal",
+            "ext_news_shutdown_signal",
+            "ext_web_press_signal",
+            "ext_web_sustainability_signal",
+            "ext_web_digital_signal",
+            "ext_web_expansion_signal",
+            "market_country_steel_news_count",
+            "market_country_economic_news_count",
+            "market_country_trade_news_count",
+            "market_country_auto_news_count",
+            "market_country_macro_news_count",
+            "market_country_trade_pressure_score",
+            "market_country_auto_demand_score",
+            "market_country_macro_activity_score",
+            "market_country_steel_intensity_score",
+        ]
+        for col in external_cols:
             if col in df.columns:
                 cols_to_keep.append(col)
                 final_cols.append(col)

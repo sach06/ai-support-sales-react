@@ -32,6 +32,16 @@ export const getRetrainStatus = async () => {
     return response.data;
 };
 
+export const refreshExternalFeatures = async (maxCompanyCount = 75) => {
+    const response = await api.post('/ranking/refresh-external-features', null, {
+        params: {
+            max_company_count: maxCompanyCount,
+        },
+        timeout: 120000,
+    });
+    return response.data;
+};
+
 export const getCompanyIntelligence = async ({ companyName, equipmentType, country }) => {
     const response = await api.get('/ranking/company-intelligence', {
         params: {

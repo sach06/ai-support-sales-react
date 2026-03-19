@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from app.services.ml_ranking_service import ml_ranking_service
 import app.services.historical_service as historical_service
+from app.services.external_feature_service import external_feature_service
 from app.services.web_enrichment_service import web_enrichment_service
 import json
 
@@ -239,7 +240,24 @@ def get_ranked_list(
             "knowledge_digital_signal": "Automation and digital references indicate optimization scope beyond mechanical replacement.",
             "knowledge_decarbonization_signal": "Decarbonization language signals likely relevance for EAF, electrification, and green-steel positioning.",
             "knowledge_project_signal": "Project-document density indicates active execution context or recent commercial traction.",
-            "knowledge_quality_signal": "Quality or issue references can indicate recovery work, retrofit demand, or service-led re-entry opportunities."
+            "knowledge_quality_signal": "Quality or issue references can indicate recovery work, retrofit demand, or service-led re-entry opportunities.",
+            "ext_news_article_count_180d": "More relevant recent news usually means the account is active enough to surface public strategic moves.",
+            "ext_news_unique_source_count_180d": "Coverage across multiple sources suggests the market signal is broad rather than a single isolated mention.",
+            "ext_news_days_since_last_mention": "More recent mentions can indicate an active investment or restructuring cycle.",
+            "ext_news_capex_signal": "Capex and investment language in recent coverage indicates potential modernization or expansion appetite.",
+            "ext_news_modernization_signal": "Upgrade and revamp language in public news points to near-term technical opportunity.",
+            "ext_news_decarbonization_signal": "Public decarbonization narratives can align with electrification, efficiency, and green-steel sales plays.",
+            "ext_news_restructuring_signal": "Restructuring can mean either caution or a trigger for targeted productivity investments.",
+            "ext_news_shutdown_signal": "Shutdown or distress signals should typically suppress pursuit priority unless service recovery scope is explicit.",
+            "ext_web_press_signal": "A visible corporate press footprint often correlates with organizational maturity and externally visible strategic activity.",
+            "ext_web_sustainability_signal": "Sustainability language on the company overview is a proxy for ESG-driven investment relevance.",
+            "ext_web_digital_signal": "Digital and automation language suggests openness to control, analytics, and optimization offers.",
+            "ext_web_expansion_signal": "Expansion language points to capacity, brownfield, or adjacent-line opportunity.",
+            "market_country_steel_news_count": "A more active steel-news environment can indicate investment, policy, or supply-chain change in the market.",
+            "market_country_trade_pressure_score": "Trade and tariff pressure can accelerate competitiveness and modernization decisions.",
+            "market_country_auto_demand_score": "Automotive demand is a useful downstream proxy for flat-product and quality-upgrade pull.",
+            "market_country_macro_activity_score": "Stronger manufacturing and infrastructure language suggests a healthier capex backdrop.",
+            "market_country_steel_intensity_score": "A more steel-intensive market backdrop increases relevance of equipment and service offerings."
         }
 
         model_meta = ml_ranking_service.get_model_metadata() if not force_heuristic else {}
@@ -333,6 +351,17 @@ def retrain_model(snapshot_id: str = Query(default="live_duckdb")):
     t = threading.Thread(target=_run_retrain, args=(snapshot_id,), daemon=True)
     t.start()
     return {"accepted": True, "status": "running", "message": "Retraining started in background."}
+
+
+@router.post("/refresh-external-features")
+def refresh_external_features(max_company_count: int = Query(default=75, ge=10, le=250)):
+    """Refresh stable external feature snapshots used by ranking training/inference."""
+    try:
+        result = external_feature_service.refresh_snapshots(max_company_count=max_company_count)
+        ml_ranking_service.clear_cache()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/retrain-status")

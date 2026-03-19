@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useFilterStore } from '../store/useFilterStore';
 import { useDataStore } from '../store/useDataStore';
-import { getRankedList, getModelStatus, retrainRankingModel, getRetrainStatus } from '../api/rankingApi';
+import { getRankedList, getModelStatus, retrainRankingModel, getRetrainStatus, refreshExternalFeatures } from '../api/rankingApi';
 
 import RankingTable from './RankingTable';
 import RankingExplainer from './RankingExplainer';
@@ -32,6 +32,7 @@ const RankingPage = () => {
     const [selectedCompany, setSelectedCompany] = useState(null);
     const [forceHeuristic, setForceHeuristic] = useState(false);
     const [isRetraining, setIsRetraining] = useState(false);
+    const [isRefreshingExternal, setIsRefreshingExternal] = useState(false);
     const [retrainMessage, setRetrainMessage] = useState(null);
     const [retrainSuccess, setRetrainSuccess] = useState(null); // true | false | null
     const retrainPollRef = useRef(null);
@@ -108,6 +109,27 @@ const RankingPage = () => {
             setRetrainMessage('Failed to start retraining. Check backend logs.');
             setRetrainSuccess(false);
             setIsRetraining(false);
+        }
+    };
+
+    const handleRefreshExternalFeatures = async () => {
+        setIsRefreshingExternal(true);
+        setRetrainMessage('Refreshing stable external features...');
+        setRetrainSuccess(null);
+        try {
+            const result = await refreshExternalFeatures(75);
+            setRetrainSuccess(true);
+            setRetrainMessage(
+                `External features refreshed: ${result.company_feature_rows || 0} company rows, ${result.country_feature_rows || 0} country rows.`
+            );
+            await refetchRankings();
+        } catch (err) {
+            console.error('Failed to refresh external features:', err);
+            const detail = err?.response?.data?.detail || err?.message || 'Unknown error';
+            setRetrainSuccess(false);
+            setRetrainMessage(`External feature refresh failed: ${detail}`);
+        } finally {
+            setIsRefreshingExternal(false);
         }
     };
 
@@ -198,6 +220,9 @@ const RankingPage = () => {
                             Force Heuristic Rules
                         </label>
                     )}
+                    <button className="btn-secondary" onClick={handleRefreshExternalFeatures} disabled={isRefreshingExternal || isRetraining}>
+                        {isRefreshingExternal ? 'Refreshing External Features...' : 'Refresh External Features'}
+                    </button>
                     <button className="btn-secondary" onClick={handleRetrain} disabled={isRetraining}>
                         {isRetraining ? 'Retraining...' : 'Retrain Model'}
                     </button>

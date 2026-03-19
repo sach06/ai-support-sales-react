@@ -47,8 +47,10 @@ class MLRankingService:
 
     def clear_cache(self) -> None:
         """Invalidate the cached feature matrix (call after data is reloaded)."""
+        from app.services.ranking_reranker_service import ranking_reranker_service
         self._feat_df = None
         self._labels  = None
+        ranking_reranker_service.clear_cache()
 
     def load_model(self) -> bool:
         """Load model from disk. Returns True on success."""
@@ -88,12 +90,11 @@ class MLRankingService:
             if feat_df is not None and not feat_df.empty:
                 try:
                     result = self._model.rank_by_equipment_type(
-                        feat_df, equipment_type=equipment_type, top_k=top_k if not country else None
+                        feat_df, equipment_type=equipment_type, top_k=None
                     )
                     if country and "country" in result.columns:
                         result = result[result["country"].str.contains(country, case=False, na=False)]
-                    if top_k:
-                        result = result.head(top_k)
+                    result = self._apply_recent_signal_rerank(result, top_k=top_k)
                     return result
                 except Exception as e:
                     logger.warning("XGBoost ranking failed, falling back: %s", e)
@@ -183,6 +184,16 @@ class MLRankingService:
         crm_df = _ds.execute_df(f"SELECT * FROM {crm_table}") if crm_table else pd.DataFrame()
         return bcg_df, crm_df
 
+    def _load_external_features_via_data_service(self) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        from app.services.data_service import data_service as _ds
+
+        tables_df = _ds.execute_df("SHOW TABLES")
+        table_names = set(tables_df.iloc[:, 0].astype(str).tolist()) if not tables_df.empty else set()
+
+        company_df = _ds.execute_df("SELECT * FROM company_external_features") if "company_external_features" in table_names else pd.DataFrame()
+        country_df = _ds.execute_df("SELECT * FROM country_market_features") if "country_market_features" in table_names else pd.DataFrame()
+        return company_df, country_df
+
     def retrain_model(self, data_snapshot_id: str = "live_duckdb") -> Dict:
         """
         Retrain XGBoost model on current DuckDB data and persist artifact/metadata.
@@ -193,26 +204,33 @@ class MLRankingService:
             from src.features.feature_engineering import (
                 build_labels,
                 extract_equipment_features,
+                load_external_feature_data,
                 load_raw_data,
-                load_raw_data_from_conn,
             )
             from src.models.xgb_ranking_model import XGBPriorityModel
         except Exception as exc:
             raise RuntimeError(f"Training dependencies unavailable: {exc}") from exc
 
-        bcg_df = crm_df = None
+        bcg_df = crm_df = external_company_df = external_country_df = None
         try:
             bcg_df, crm_df = self._load_bcg_crm_via_data_service()
+            external_company_df, external_country_df = self._load_external_features_via_data_service()
         except Exception as shared_err:
             logger.debug("Thread-safe shared training load failed (%s), falling back to direct open", shared_err)
 
         if bcg_df is None:
             bcg_df, crm_df = load_raw_data(self._db_path)
+            external_company_df, external_country_df = load_external_feature_data(self._db_path)
 
         if bcg_df is None or bcg_df.empty:
             raise RuntimeError("No BCG installed-base data available for retraining")
 
-        feat_df, meta = extract_equipment_features(bcg_df, crm_df)
+        feat_df, meta = extract_equipment_features(
+            bcg_df,
+            crm_df,
+            external_company_df=external_company_df,
+            external_country_df=external_country_df,
+        )
         feature_columns = meta.get("feature_columns", [])
         if not feature_columns:
             raise RuntimeError("Feature engineering produced no model columns")
@@ -248,6 +266,47 @@ class MLRankingService:
             return self._model.feature_importances_
         return None
 
+    def _apply_recent_signal_rerank(self, ranked_df: pd.DataFrame, top_k: Optional[int]) -> pd.DataFrame:
+        from app.services.ranking_reranker_service import ranking_reranker_service
+
+        if ranked_df is None or ranked_df.empty:
+            return ranked_df
+
+        df = ranked_df.copy()
+        if "base_priority_score" not in df.columns:
+            df["base_priority_score"] = pd.to_numeric(df["priority_score"], errors="coerce").fillna(0.0)
+        df["rerank_adjustment"] = 0.0
+        df["rerank_recent_mentions"] = 0
+        df["rerank_recent_sources"] = 0
+        df["rerank_reasons"] = [[] for _ in range(len(df))]
+
+        candidate_count = min(len(df), max(min((top_k or 50) * 2, 100), 50))
+        candidate_df = df.head(candidate_count).copy()
+
+        for idx, row in candidate_df.iterrows():
+            payload = ranking_reranker_service.score_recent_signals(
+                company_name=row.get("company", ""),
+                country=row.get("country", ""),
+            )
+            candidate_df.at[idx, "rerank_adjustment"] = float(payload.get("rerank_adjustment", 0.0) or 0.0)
+            candidate_df.at[idx, "rerank_recent_mentions"] = int(payload.get("rerank_recent_mentions", 0) or 0)
+            candidate_df.at[idx, "rerank_recent_sources"] = int(payload.get("rerank_recent_sources", 0) or 0)
+            candidate_df.at[idx, "rerank_reasons"] = payload.get("rerank_reasons", []) or []
+
+        candidate_df["priority_score"] = (candidate_df["base_priority_score"] + candidate_df["rerank_adjustment"]).clip(0, 100).round(1)
+        untouched_df = df.iloc[candidate_count:].copy()
+        if not untouched_df.empty:
+            untouched_df["priority_score"] = pd.to_numeric(untouched_df["base_priority_score"], errors="coerce").fillna(0.0).round(1)
+
+        combined = pd.concat([candidate_df, untouched_df], ignore_index=True)
+        combined = combined.sort_values("priority_score", ascending=False).reset_index(drop=True)
+        combined.index += 1
+        if "rank" in combined.columns:
+            combined["rank"] = combined.index
+        if top_k:
+            combined = combined.head(top_k)
+        return combined
+
     # ── Private helpers ───────────────────────────────────────────────────────
 
     def _get_features(self) -> Optional[pd.DataFrame]:
@@ -257,28 +316,35 @@ class MLRankingService:
         try:
             from src.features.feature_engineering import (
                 extract_equipment_features,
+                load_external_feature_data,
                 load_raw_data,
-                load_raw_data_from_conn,
             )
 
             # ── Preferred path: reuse the already-open data_service connection ──
             # data_service holds an exclusive Windows lock on the DB file, so
             # opening a second connection would fail. Borrowing its connection
             # avoids that entirely.
-            bcg_df = crm_df = None
+            bcg_df = crm_df = external_company_df = external_country_df = None
             try:
                 bcg_df, crm_df = self._load_bcg_crm_via_data_service()
+                external_company_df, external_country_df = self._load_external_features_via_data_service()
             except Exception as shared_err:
                 logger.debug("Thread-safe shared load failed (%s), falling back to file open", shared_err)
 
             # ── Fallback: open the file directly (works when no Streamlit lock) ─
             if bcg_df is None:
                 bcg_df, crm_df = load_raw_data(self._db_path)
+                external_company_df, external_country_df = load_external_feature_data(self._db_path)
 
             if bcg_df is None or bcg_df.empty:
                 return None
 
-            self._feat_df, _ = extract_equipment_features(bcg_df, crm_df)
+            self._feat_df, _ = extract_equipment_features(
+                bcg_df,
+                crm_df,
+                external_company_df=external_company_df,
+                external_country_df=external_country_df,
+            )
 
             # Prefer per-row city from BCG so Ranking "Site / City" matches Overview tables.
             city_col = next((c for c in ["city_internal", "City", "city", "site_name"] if c in bcg_df.columns), None)
@@ -387,32 +453,40 @@ class MLRankingService:
         """
         from src.features.feature_engineering import (
             extract_equipment_features,
+            load_external_feature_data,
             load_raw_data,
-            load_raw_data_from_conn,
         )
         _empty = pd.DataFrame(columns=["rank", "company", "equipment_type",
                                         "country", "equipment_age", "priority_score"])
         try:
-            bcg_df = crm_df = None
+            bcg_df = crm_df = external_company_df = external_country_df = None
             try:
                 bcg_df, crm_df = self._load_bcg_crm_via_data_service()
+                external_company_df, external_country_df = self._load_external_features_via_data_service()
             except Exception:
                 pass
 
             if bcg_df is None:
                 bcg_df, crm_df = load_raw_data(self._db_path)
+                external_company_df, external_country_df = load_external_feature_data(self._db_path)
 
-            feat_df, _ = extract_equipment_features(bcg_df, crm_df)
+            feat_df, _ = extract_equipment_features(
+                bcg_df,
+                crm_df,
+                external_company_df=external_company_df,
+                external_country_df=external_country_df,
+            )
         except Exception as e:
             logger.warning("Heuristic fallback data load failed: %s", e)
             return _empty
 
         df = feat_df.copy()
-        df["priority_score"] = (
+        df["base_priority_score"] = (
             df["equipment_age"].clip(0, 30) * 3.0
             + df["is_sms_oem"] * 15.0
             + df["crm_rating_num"] * 2.0
         ).clip(0, 100).round(1)
+        df["priority_score"] = df["base_priority_score"]
 
         if equipment_type:
             df = df[df["_equipment_type"].str.contains(equipment_type, case=False, na=False)]
@@ -422,8 +496,8 @@ class MLRankingService:
         df = df.sort_values("priority_score", ascending=False).reset_index(drop=True)
         df.index += 1
 
-        cols_to_keep = ["_company", "_equipment_type", "_country", "_equipment_age", "priority_score"]
-        final_cols = ["company", "equipment_type", "country", "equipment_age", "priority_score"]
+        cols_to_keep = ["_company", "_equipment_type", "_country", "_equipment_age", "priority_score", "base_priority_score"]
+        final_cols = ["company", "equipment_type", "country", "equipment_age", "priority_score", "base_priority_score"]
         if "_site_city" in df.columns:
             cols_to_keep.append("_site_city")
             final_cols.append("site_city")
@@ -448,10 +522,7 @@ class MLRankingService:
         out = df[cols_to_keep].copy()
         out.columns = final_cols
         out.insert(0, "rank", out.index)
-
-        if top_k:
-            out = out.head(top_k)
-        return out
+        return self._apply_recent_signal_rerank(out, top_k=top_k)
 
 
 

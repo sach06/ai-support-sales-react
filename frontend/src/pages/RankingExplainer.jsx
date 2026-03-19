@@ -43,6 +43,11 @@ const RankingExplainer = ({ rowData }) => {
         knowledge_decarbonization_signal: 'Decarbonization evidence supports positioning around EAF, emissions reduction, and green steel pathways.',
         knowledge_project_signal: 'Project-level evidence increases confidence that active execution or commercial momentum exists.',
         knowledge_quality_signal: 'Quality-related evidence may indicate corrective retrofit, reliability, and lifecycle service opportunities.',
+        ext_news_capex_signal: 'Stable public-news aggregates indicate capex or expansion activity around this account.',
+        ext_news_modernization_signal: 'Stable public signals suggest upgrade or modernization momentum.',
+        ext_news_decarbonization_signal: 'Stable public signals suggest decarbonization relevance in the account narrative.',
+        market_country_trade_pressure_score: 'Country-level trade pressure can change competitiveness and the timing of investment decisions.',
+        market_country_macro_activity_score: 'Country macro activity influences whether industrial customers are likely to fund upgrades.',
     };
 
     const DRIVER_LABELS = {
@@ -63,6 +68,11 @@ const RankingExplainer = ({ rowData }) => {
         knowledge_decarbonization_signal: 'Decarbonization potential',
         knowledge_project_signal: 'Active project momentum',
         knowledge_quality_signal: 'Quality-improvement opportunity',
+        ext_news_capex_signal: 'Stable capex news signal',
+        ext_news_modernization_signal: 'Stable modernization news signal',
+        ext_news_decarbonization_signal: 'Stable decarbonization news signal',
+        market_country_trade_pressure_score: 'Country trade-pressure context',
+        market_country_macro_activity_score: 'Country macro activity',
     };
 
     const { data: newsItems = [] } = useQuery({
@@ -168,6 +178,12 @@ const RankingExplainer = ({ rowData }) => {
                 </div>
                 {rowData.country && <div className="company-meta">{rowData.country} • {rowData.equipment_type || 'Mixed Equipment'}</div>}
                 <div className="company-meta">Confidence / Priority Likelihood</div>
+                {typeof rowData.base_priority_score === 'number' && (
+                    <div className="company-meta">
+                        Base {rowData.base_priority_score.toFixed(1)}%
+                        {typeof rowData.rerank_adjustment === 'number' ? ` • Recent signal adj. ${rowData.rerank_adjustment >= 0 ? '+' : ''}${rowData.rerank_adjustment.toFixed(1)}` : ''}
+                    </div>
+                )}
             </div>
 
             <div className="explainer-body">
@@ -206,6 +222,27 @@ const RankingExplainer = ({ rowData }) => {
                             </li>
                         ))}
                     </ul>
+                )}
+
+                {Array.isArray(rowData.rerank_reasons) && rowData.rerank_reasons.length > 0 && (
+                    <>
+                        <h4 style={{ marginTop: '1.25rem' }}>Recent Signal Adjustment</h4>
+                        <div style={{ display: 'grid', gap: '0.4rem' }}>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                                Adjustment applied: {typeof rowData.rerank_adjustment === 'number' ? `${rowData.rerank_adjustment >= 0 ? '+' : ''}${rowData.rerank_adjustment.toFixed(1)} pts` : '0.0 pts'}
+                            </div>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                Recent mentions: {Number(rowData.rerank_recent_mentions || 0)} across {Number(rowData.rerank_recent_sources || 0)} sources.
+                            </div>
+                            <ul className="feature-list">
+                                {rowData.rerank_reasons.map((reason, idx) => (
+                                    <li key={`rerank-${idx}`}>
+                                        <div style={{ fontSize: '0.84rem', color: 'var(--text-primary)' }}>{reason}</div>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </>
                 )}
 
                 <h4 style={{ marginTop: '1.25rem' }}>How to Read the SMS Evidence</h4>
