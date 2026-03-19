@@ -198,6 +198,25 @@ def get_ranked_list(
                 else:
                     others.append(rec)
 
+            # If strict filter slice does not contain the selected account,
+            # attempt one broader lookup so the user-selected company is still shown.
+            if selected is None:
+                try:
+                    df_company = ml_ranking_service.get_ranked_list(
+                        equipment_type=None,
+                        country=None,
+                        top_k=None,
+                        force_heuristic=force_heuristic,
+                    )
+                    if not df_company.empty:
+                        for rec in df_company.to_dict(orient="records"):
+                            if _company_matches(str(rec.get("company") or "").strip(), company_filter):
+                                selected = rec
+                                break
+                except Exception:
+                    # Keep normal flow even if fallback probe fails.
+                    pass
+
             limited = others[: max(0, top_k - 1)] if top_k else others
             records = ([selected] if selected else []) + limited
         else:

@@ -84,6 +84,59 @@
     gap: 0.75rem;
 }
 
+.export-progress-panel {
+    width: 100%;
+    max-width: 560px;
+    padding: 0.65rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-hover);
+}
+
+.export-progress-msg {
+    font-size: 0.82rem;
+    color: var(--text-primary);
+    margin-bottom: 0.45rem;
+}
+
+.export-progress-chips {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.export-chip {
+    font-size: 0.74rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border-radius: 999px;
+    padding: 0.2rem 0.55rem;
+    border: 1px solid var(--border);
+}
+
+.export-chip-idle {
+    color: var(--text-secondary);
+    background: #f8fafc;
+}
+
+.export-chip-running {
+    color: #1f4788;
+    background: rgba(31, 71, 136, 0.12);
+    border-color: rgba(31, 71, 136, 0.28);
+}
+
+.export-chip-success {
+    color: #166534;
+    background: rgba(34, 197, 94, 0.14);
+    border-color: rgba(34, 197, 94, 0.3);
+}
+
+.export-chip-error {
+    color: #991b1b;
+    background: rgba(239, 68, 68, 0.14);
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
 .export-label {
     font-size: 0.9rem;
     color: var(--text-secondary);
@@ -472,4 +525,60 @@
     background-color: var(--background);
     padding: 1rem;
     border-radius: 6px;
+}
+
+/* Modular Sections Styling */
+.modular-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+    padding-top: 0.5rem;
+}
+
+.modular-module {
+    background-color: var(--surface-hover);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--primary);
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.module-header {
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.module-header h4 {
+    margin: 0;
+    color: var(--primary);
+    font-size: 1.15rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.module-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.module-field {
+    gap: 0.5rem;
+}
+
+.module-field h5 {
+    margin: 0.75rem 0 0.5rem 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--primary);
+    text-transform: capitalize;
+}
+
+.module-field > div {
+    padding: 0.75rem 1rem;
+    background-color: var(--background);
+    border-radius: 6px;
+    border-left: 2px solid rgba(31, 71, 136, 0.2);
 }

@@ -21,143 +21,106 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from app.services.data_service import data_service
+from app.services.load_job_service import (
+    get_latest_job_id,
+    get_latest_progress,
+    load_progress,
+    start_load_job,
+)
 from app.utils.json_utils import df_to_json_safe, json_safe_sanitize
 
 router = APIRouter()
 
-# ── Progress tracking ─────────────────────────────────────────────────────────
-_load_progress = {
-    "running": False,
-    "step": "",
-    "percent": 0,
-    "total_steps": 6,
-    "current_step": 0,
-    "error": None,
-    "done": False,
-    "logs": [],
-}
+# ── Progress tracking (job-id based, process-isolated) ───────────────────────
 _progress_lock = threading.Lock()
-
-
-def _update_progress(step: str, current: int, total: int, logs: list = None):
-    with _progress_lock:
-        _load_progress["step"] = step
-        _load_progress["current_step"] = current
-        _load_progress["total_steps"] = total
-        _load_progress["percent"] = int((current / total) * 100) if total > 0 else 0
-        if logs:
-            _load_progress["logs"] = logs
-
-
-def _run_load_data():
-    """Background data loading with progress tracking."""
-    with _progress_lock:
-        _load_progress["running"] = True
-        _load_progress["done"] = False
-        _load_progress["error"] = None
-        _load_progress["percent"] = 0
-        _load_progress["step"] = "Initializing..."
-        _load_progress["current_step"] = 0
-
-    try:
-        data_service.clear_logs()
-
-        # Step 1: Initialize database
-        _update_progress("Initializing database...", 1, 6)
-        data_service.initialize_database()
-        _update_progress("Initializing database...", 1, 6, data_service.get_logs())
-
-        # Step 2: Discover files
-        _update_progress("Discovering data files...", 2, 6, data_service.get_logs())
-        available_files = data_service.list_available_files()
-        if not available_files:
-            with _progress_lock:
-                _load_progress["error"] = "No data files found in data/ directory"
-                _load_progress["running"] = False
-                _load_progress["done"] = True
-            return
-
-        # Step 3: Load BCG data
-        for file in available_files:
-            if "bcg" in file.lower():
-                _update_progress(f"Loading BCG installed base ({file})...", 3, 6, data_service.get_logs())
-                data_service.load_bcg_installed_base(file)
-                _update_progress(f"BCG data loaded", 3, 6, data_service.get_logs())
-
-        # Step 4: Load CRM data
-        for file in available_files:
-            if "crm" in file.lower():
-                _update_progress(f"Loading CRM data ({file})...", 4, 6, data_service.get_logs())
-                data_service.load_crm_data(file)
-                _update_progress(f"CRM data loaded", 4, 6, data_service.get_logs())
-
-        # Step 5: Load other files
-        for file in available_files:
-            if "crm" not in file.lower() and "bcg" not in file.lower():
-                if "install" in file.lower() or "base" in file.lower():
-                    _update_progress(f"Loading {file}...", 5, 6, data_service.get_logs())
-                    data_service.load_installed_base(file)
-
-        # Step 6: Create unified view
-        _update_progress("Creating unified company view & matching...", 5, 6, data_service.get_logs())
-        data_service.create_unified_view()
-        _update_progress("Unified view created", 6, 6, data_service.get_logs())
-
-        # Clear ML ranking cache
-        try:
-            from app.services.ml_ranking_service import ml_ranking_service
-            ml_ranking_service.clear_cache()
-        except Exception:
-            pass
-
-        with _progress_lock:
-            _load_progress["running"] = False
-            _load_progress["done"] = True
-            _load_progress["percent"] = 100
-            _load_progress["step"] = "Complete!"
-            _load_progress["logs"] = data_service.get_logs()
-
-    except Exception as e:
-        with _progress_lock:
-            _load_progress["running"] = False
-            _load_progress["done"] = True
-            _load_progress["error"] = str(e)
-            _load_progress["step"] = f"Error: {e}"
-            _load_progress["logs"] = data_service.get_logs()
 
 
 # ── /api/data/load ────────────────────────────────────────────────────────────
 
 @router.post("/load")
 def load_data():
-    """Initialize database and load all available data files in background."""
+    """Start a data-load job in an isolated worker process."""
     with _progress_lock:
-        if _load_progress["running"]:
-            return {"success": False, "message": "Data loading already in progress"}
+        latest = get_latest_progress()
+        if latest and latest.get("running"):
+            return {
+                "success": False,
+                "message": "Data loading already in progress",
+                "job_id": latest.get("job_id"),
+                "async": True,
+            }
 
-    worker = threading.Thread(target=_run_load_data, name="data-load-worker", daemon=True)
-    worker.start()
-    return {"success": True, "message": "Data loading started", "async": True}
+        # Release any API-process DB handle before worker attempts write access.
+        try:
+            data_service.close()
+            data_service.conn = None
+        except Exception:
+            pass
+
+        job_meta = start_load_job()
+        return {
+            "success": True,
+            "message": "Data loading started",
+            "async": True,
+            "job_id": job_meta.get("job_id"),
+            "pid": job_meta.get("pid"),
+        }
 
 
 # ── /api/data/progress ────────────────────────────────────────────────────────
 
 @router.get("/progress")
-def get_progress():
-    """Return current data loading progress."""
-    with _progress_lock:
-        return dict(_load_progress)
+def get_progress(job_id: Optional[str] = Query(default=None)):
+    """Return progress for a specific job (or latest job if omitted)."""
+    target_job_id = job_id or get_latest_job_id()
+    if not target_job_id:
+        return {
+            "job_id": None,
+            "running": False,
+            "done": False,
+            "percent": 0,
+            "step": "No load job started",
+            "error": None,
+            "logs": [],
+            "total_steps": 6,
+            "current_step": 0,
+        }
+
+    progress = load_progress(target_job_id)
+    if not progress:
+        return {
+            "job_id": target_job_id,
+            "running": False,
+            "done": False,
+            "percent": 0,
+            "step": "Job not found",
+            "error": f"Unknown job_id: {target_job_id}",
+            "logs": [],
+            "total_steps": 6,
+            "current_step": 0,
+        }
+    return progress
 
 
 # ── /api/data/status ──────────────────────────────────────────────────────────
 
 @router.get("/status")
-def get_status():
+def get_status(job_id: Optional[str] = Query(default=None)):
     """Return current data-load status and row counts."""
     try:
+        latest = load_progress(job_id) if job_id else get_latest_progress()
+        if latest and latest.get("running"):
+            return {
+                "loaded": False,
+                "loading": True,
+                "job_id": latest.get("job_id"),
+                "row_counts": {},
+                "tables": [],
+            }
+
         conn = data_service.get_conn()
         if conn is None:
-            return {"loaded": False, "row_counts": {}}
+            return {"loaded": False, "loading": False, "job_id": get_latest_job_id(), "row_counts": {}}
 
         tables_result = data_service.execute_df("SHOW TABLES")
         table_names = tables_result["name"].tolist() if "name" in tables_result.columns else []
@@ -169,9 +132,15 @@ def get_status():
                 row_counts[tbl] = result[0] if result else 0
 
         loaded = "unified_companies" in table_names and row_counts.get("unified_companies", 0) > 0
-        return {"loaded": loaded, "row_counts": row_counts, "tables": table_names}
+        return {
+            "loaded": loaded,
+            "loading": False,
+            "job_id": get_latest_job_id(),
+            "row_counts": row_counts,
+            "tables": table_names,
+        }
     except Exception:
-        return {"loaded": False, "row_counts": {}}
+        return {"loaded": False, "loading": False, "job_id": get_latest_job_id(), "row_counts": {}}
 
 
 # ── /api/data/files ───────────────────────────────────────────────────────────

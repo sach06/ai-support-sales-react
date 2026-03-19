@@ -8,7 +8,23 @@ const ProfileSections = ({ profile }) => {
 
     const asArray = (value) => (Array.isArray(value) ? value : []);
     const asObject = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
-    const asText = (value) => (typeof value === 'string' ? value : (value == null ? '' : String(value)));
+    const asText = (value) => {
+        if (typeof value === 'string') return value;
+        if (value == null) return '';
+        if (typeof value === 'object') {
+            // Handle nested objects by converting to readable format
+            if (Array.isArray(value)) return value.map(v => String(v)).join(', ');
+            return Object.entries(value)
+                .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : String(v)}`)
+                .join(' | ');
+        }
+        return String(value);
+    };
+
+    const renderText = (value, fallback = 'N/A') => {
+        const text = asText(value).trim();
+        return text || fallback;
+    };
 
     const tabs = [
         { id: 'basic', label: 'Basic Data' },
@@ -17,45 +33,46 @@ const ProfileSections = ({ profile }) => {
         { id: 'financial', label: 'Financial Status' },
         { id: 'strategy', label: 'Customer Strategy' },
         { id: 'evidence', label: 'Internal Evidence' },
+        ...(profile?.modular_sections ? [{ id: 'modular', label: 'Deep-Dive Modules' }] : []),
     ];
 
     const renderBasicData = () => (
         <div className="tab-content basic-data-grid">
             <div className="data-group">
                 <h4>Legal Name</h4>
-                <p>{profile?.basic_data?.name || 'N/A'}</p>
+                <p>{renderText(profile?.basic_data?.name)}</p>
             </div>
             <div className="data-group">
                 <h4>Headquarters</h4>
-                <p>{profile?.basic_data?.hq_address || 'N/A'}</p>
+                <p>{renderText(profile?.basic_data?.hq_address)}</p>
             </div>
             <div className="data-group">
                 <h4>Primary Industry</h4>
-                <p>{profile?.basic_data?.company_focus || 'N/A'}</p>
+                <p>{renderText(profile?.basic_data?.company_focus)}</p>
             </div>
             <div className="data-group">
                 <h4>Annual Revenue</h4>
-                <p>{profile?.basic_data?.financials || 'N/A'}</p>
+                <p>{renderText(profile?.basic_data?.financials)}</p>
             </div>
             <div className="data-group">
                 <h4>Total Employees</h4>
-                <p>{profile?.basic_data?.fte || 'N/A'}</p>
+                <p>{renderText(profile?.basic_data?.fte)}</p>
             </div>
             <div className="data-group">
                 <h4>Ownership Type</h4>
-                <p>{profile?.basic_data?.ownership_type || profile?.basic_data?.owner || 'N/A'}</p>
+                <p>{renderText(profile?.basic_data?.ownership_type ?? profile?.basic_data?.owner)}</p>
             </div>
             <div className="data-group full-width">
                 <h4>Board And Management Deep Dive</h4>
-                <p>{profile?.basic_data?.management_deep_dive || profile?.basic_data?.management || 'N/A'}</p>
+                <p>{renderText(profile?.basic_data?.management_deep_dive ?? profile?.basic_data?.management)}</p>
             </div>
             <div className="data-group full-width">
                 <h4>Decision Dynamics</h4>
-                <p>{profile?.basic_data?.decision_governance || 'N/A'}</p>
+                <p>{renderText(profile?.basic_data?.decision_governance)}</p>
             </div>
             <div className="data-group full-width">
                 <h4>Recent Facts & Overview</h4>
-                <p>{profile?.basic_data?.recent_facts || 'No description available.'}</p>
+                <p>{renderText(profile?.basic_data?.recent_facts, 'No description available.')}</p>
             </div>
         </div>
     );
@@ -274,23 +291,23 @@ const ProfileSections = ({ profile }) => {
 
             <div className="strategy-section">
                 <h4>Strategic Outlook & Market Position</h4>
-                <p><strong>Market Position:</strong> {profile?.market_intelligence?.market_position || 'N/A'}</p>
-                <p><strong>Outlook:</strong> {profile?.market_intelligence?.strategic_outlook || 'N/A'}</p>
+                <p><strong>Market Position:</strong> {renderText(profile?.market_intelligence?.market_position)}</p>
+                <p><strong>Outlook:</strong> {renderText(profile?.market_intelligence?.strategic_outlook)}</p>
             </div>
             <div className="strategy-section">
                 <h4>SMS Group Relationship And Leverage Points</h4>
-                <p><strong>Relationship Assessment:</strong> {profile?.history?.sms_relationship || profile?.sales_strategy?.sms_relationship_assessment || 'N/A'}</p>
-                <p><strong>SMS Strengths To Leverage:</strong> {profile?.sales_strategy?.sms_strengths_to_leverage || 'N/A'}</p>
+                <p><strong>Relationship Assessment:</strong> {renderText(profile?.history?.sms_relationship ?? profile?.sales_strategy?.sms_relationship_assessment)}</p>
+                <p><strong>SMS Strengths To Leverage:</strong> {renderText(profile?.sales_strategy?.sms_strengths_to_leverage)}</p>
             </div>
             <div className="strategy-section">
                 <h4>Decarbonization / Tech Insights</h4>
-                <p>{profile?.metallurgical_insights?.carbon_footprint_strategy || 'N/A'}</p>
-                <p><strong>Modernization Potential:</strong> {profile?.metallurgical_insights?.modernization_potential || 'N/A'}</p>
+                <p>{renderText(profile?.metallurgical_insights?.carbon_footprint_strategy)}</p>
+                <p><strong>Modernization Potential:</strong> {renderText(profile?.metallurgical_insights?.modernization_potential)}</p>
             </div>
             <div className="strategy-section">
                 <h4>Recommended SMS Sales Strategy</h4>
-                <p><strong>Pitch:</strong> {profile?.sales_strategy?.value_proposition || 'N/A'}</p>
-                <p><strong>Next Steps:</strong> {profile?.sales_strategy?.suggested_next_steps || 'N/A'}</p>
+                <p><strong>Pitch:</strong> {renderText(profile?.sales_strategy?.value_proposition)}</p>
+                <p><strong>Next Steps:</strong> {renderText(profile?.sales_strategy?.suggested_next_steps)}</p>
             </div>
         </div>
     );
@@ -386,6 +403,52 @@ const ProfileSections = ({ profile }) => {
         );
     };
 
+    const renderModular = () => {
+        const modSections = profile?.modular_sections || {};
+        
+        return (
+            <div className="tab-content modular-stack">
+                {Object.entries(modSections).length === 0 ? (
+                    <p className="empty-msg">No modular sections available.</p>
+                ) : (
+                    Object.entries(modSections).map(([moduleKey, moduleContent]) => (
+                        <div key={moduleKey} className="modular-module">
+                            <div className="module-header">
+                                <h4>{moduleKey.replace('module_', 'Module ').toUpperCase()}</h4>
+                            </div>
+                            {typeof moduleContent === 'object' && moduleContent !== null ? (
+                                <div className="module-content">
+                                    {Object.entries(moduleContent).map(([key, value]) => (
+                                        <div key={key} className="module-field">
+                                            <h5 style={{ margin: '1rem 0 0.5rem 0', fontSize: '0.95rem', fontWeight: '600', color: 'var(--primary)' }}>
+                                                {key.replace(/_/g, ' ').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+                                            </h5>
+                                            <div style={{ fontSize: '0.9rem', lineHeight: '1.6', color: 'var(--text-primary)' }}>
+                                                {Array.isArray(value) ? (
+                                                    value.map((item, idx) => (
+                                                        <div key={idx} style={{ marginBottom: '0.5rem' }}>
+                                                            {typeof item === 'object' 
+                                                                ? JSON.stringify(item, null, 2) 
+                                                                : asText(item)}
+                                                        </div>
+                                                    ))
+                                                ) : (
+                                                    asText(value)
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p style={{ marginTop: '1rem', color: 'var(--text-primary)' }}>{asText(moduleContent)}</p>
+                            )}
+                        </div>
+                    ))
+                )}
+            </div>
+        );
+    };
+
     return (
         <div className="profile-sections">
             <div className="tabs-header">
@@ -407,6 +470,7 @@ const ProfileSections = ({ profile }) => {
                 {activeTab === 'financial' && renderFinancial()}
                 {activeTab === 'strategy' && renderStrategy()}
                 {activeTab === 'evidence' && renderEvidence()}
+                {activeTab === 'modular' && renderModular()}
             </div>
         </div>
     );

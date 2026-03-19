@@ -24,12 +24,14 @@ class NumpyEncoder(json.JSONEncoder):
 class ProfileGeneratorService:
     """Generate comprehensive customer profiles using AI"""
 
-    PRIMARY_TIMEOUT_SECONDS = 45
-    FALLBACK_TIMEOUT_SECONDS = 30
-    REPAIR_TIMEOUT_SECONDS = 20
-    PRIMARY_MAX_TOKENS = 2200
-    FALLBACK_MAX_TOKENS = 1800
-    MAX_CONTEXT_CHARS = 18000
+    PRIMARY_TIMEOUT_SECONDS = 120
+    FALLBACK_TIMEOUT_SECONDS = 90
+    REPAIR_TIMEOUT_SECONDS = 30
+    PRIMARY_MAX_TOKENS = 4500
+    FALLBACK_MAX_TOKENS = 3500
+    MAX_CONTEXT_CHARS = 20000
+    MODULE_TIMEOUT_SECONDS = 45
+    MODULE_MAX_TOKENS = 1700
     
     def __init__(self):
         self.client = None
@@ -83,6 +85,15 @@ class ProfileGeneratorService:
         context = self._build_context(customer_data, web_data, extra_context or {}, strict_safety=True)
         if len(context) > self.MAX_CONTEXT_CHARS:
             context = context[:self.MAX_CONTEXT_CHARS]
+
+        # Primary path: modular drafting strategy (A-D modules) to maintain depth.
+        try:
+            modular_profile = self._generate_modular_profile(context, customer_data, extra_context or {})
+            if modular_profile:
+                modular_profile["generation_mode"] = "ai_modular"
+                return modular_profile
+        except Exception as modular_err:
+            print(f"Modular drafting failed, falling back to single-pass generation: {modular_err}")
 
         # Create prompt for structured profile generation
         prompt = self._create_profile_prompt(context)
@@ -175,7 +186,7 @@ class ProfileGeneratorService:
                 compact = self.client.chat.completions.create(
                     model=self.model,
                     messages=safe_messages,
-                    temperature=0.2,
+                    temperature=0.3,
                     max_tokens=self.FALLBACK_MAX_TOKENS,
                     timeout=self.FALLBACK_TIMEOUT_SECONDS,
                     response_format={"type": "json_object"},
@@ -192,6 +203,370 @@ class ProfileGeneratorService:
             fb["generation_error"] = err_text
             fb["generation_mode"] = "fallback"
             return fb
+
+    def _run_json_completion(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: Optional[int] = None,
+        timeout_seconds: Optional[int] = None,
+        temperature: float = 0.3,
+    ) -> Dict:
+        """Run an LLM completion and parse a JSON object with robust fallback behavior."""
+        max_t = max_tokens or self.MODULE_MAX_TOKENS
+        timeout_s = timeout_seconds or self.MODULE_TIMEOUT_SECONDS
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_t,
+                timeout=timeout_s,
+                response_format={"type": "json_object"},
+            )
+            return self._extract_json(response.choices[0].message.content)
+        except Exception:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages + [
+                    {
+                        "role": "system",
+                        "content": "Return strict JSON only. No markdown fences or prose around JSON.",
+                    }
+                ],
+                temperature=temperature,
+                max_tokens=max_t,
+                timeout=timeout_s,
+            )
+            return self._extract_json(response.choices[0].message.content)
+
+    def _generate_modular_profile(self, context: str, customer_data: Dict, extra_context: Dict) -> Dict:
+        """Generate a deep-dive profile using a modular A-D drafting workflow."""
+        resource_guidance = (
+            "Preferred evidence sources by section (use when signals exist in context):\n"
+            "- AIST: plant type, equipment, OEM, tons/year\n"
+            "- Global Energy Monitor Steel Plant Tracker: GPS, BF-BOF vs EAF, decarbonization status\n"
+            "- D&B Hoovers: buying center, management, FTE\n"
+            "- Enhesa (RegScan): ESG, compliance, embargo exposure\n"
+            "- Salesforce/MS Dynamics CRM: latest visits, relationship status, SMS contacts"
+        )
+
+        system_prompt = (
+            "You are a senior strategy consultant and steel-industry specialist preparing a consulting-grade "
+            "deep-dive for SMS group. Use only evidence from provided context; if missing, mark as Working hypothesis. "
+            "Always return valid JSON only."
+        )
+
+        module_a_prompt = f"""
+Module A: Corporate Foundation & Strategic Intent.
+
+Draft approximately 600-850 words and return JSON with keys:
+- basic_data (object with string fields: name, hq_address, owner, management, ceo, fte, company_focus, ownership_history, and financials as a brief text summary like "€150-200M annual revenue, EBITDA margin 8-10%, net debt positive")
+- workforce_strategy (string)
+- financial_trend_5y (string)
+- strategic_vision_steel_2030 (string)
+- buying_center_map (string)
+- references (array of strings)
+
+IMPORTANT: All values must be strings or arrays of strings. No nested objects except basic_data which contains only string-valued fields.
+Chain of Density rule: prioritize specific facts; if detail is insufficient, add explicit "Working hypothesis:" statements.
+
+{resource_guidance}
+
+CONTEXT:
+{context}
+"""
+
+        module_b_prompt = f"""
+Module B: Operational Footprint & Technical Installed Base.
+
+Draft approximately 800-1100 words and return JSON with keys:
+- operational_summary (string)
+- location_audit (array of objects with: address, city, country, logistics_context, plant_type, equipment_detail, oem, automation_spec, rated_tpy, actual_tpy, final_products)
+- equipment_detail_summary (string)
+- latest_projects (string)
+- realized_projects (string)
+- metallurgical_findings (object with: process_efficiency, carbon_footprint_strategy, modernization_potential, technical_bottlenecks)
+- references (array of strings)
+
+Include location-by-location and OEM-level detail.
+
+{resource_guidance}
+
+CONTEXT:
+{context}
+"""
+
+        module_c_prompt = f"""
+Module C: Market Standing & End-Customer Ecosystem.
+
+Draft approximately 500-700 words and return JSON with keys:
+- downstream_customer_analysis (string)
+- market_share_analysis (string)
+- relationship_management (object with: customer_rating, key_persons, latest_visit_sentiment, sms_contacts, relationship_status)
+- sales_implications (string)
+- references (array of strings)
+
+Focus on end-customer exposure and CRM relationship quality.
+
+{resource_guidance}
+
+CONTEXT:
+{context}
+"""
+
+        module_d_prompt = f"""
+Module D: Risk, Compliance & ESG.
+
+Draft approximately 500-700 words and return JSON with keys:
+- embargo_exposure (string)
+- esg_and_cbam_alignment (string)
+- framework_agreements (string)
+- risk_assessment (string)
+- compliance_implications_for_sms (string)
+- references (array of strings)
+
+Include concrete risk mechanisms and mitigation recommendations for SMS deal strategy.
+
+{resource_guidance}
+
+CONTEXT:
+{context}
+"""
+
+        module_a, module_b, module_c, module_d = {}, {}, {}, {}
+        try:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            tasks = {
+                "module_a": module_a_prompt,
+                "module_b": module_b_prompt,
+                "module_c": module_c_prompt,
+                "module_d": module_d_prompt,
+            }
+
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                future_map = {
+                    executor.submit(self._run_json_completion, system_prompt, prompt): name
+                    for name, prompt in tasks.items()
+                }
+                for future in as_completed(future_map):
+                    name = future_map[future]
+                    try:
+                        result = future.result(timeout=self.MODULE_TIMEOUT_SECONDS + 10)
+                    except Exception as e:
+                        print(f"{name} failed: {e}")
+                        result = {}
+
+                    if name == "module_a":
+                        module_a = result
+                    elif name == "module_b":
+                        module_b = result
+                    elif name == "module_c":
+                        module_c = result
+                    elif name == "module_d":
+                        module_d = result
+        except Exception as e:
+            print(f"Parallel modular drafting failed, retrying sequentially: {e}")
+            try:
+                module_a = self._run_json_completion(system_prompt, module_a_prompt)
+            except Exception as e_a:
+                print(f"Module A failed: {e_a}")
+            try:
+                module_b = self._run_json_completion(system_prompt, module_b_prompt)
+            except Exception as e_b:
+                print(f"Module B failed: {e_b}")
+            try:
+                module_c = self._run_json_completion(system_prompt, module_c_prompt)
+            except Exception as e_c:
+                print(f"Module C failed: {e_c}")
+            try:
+                module_d = self._run_json_completion(system_prompt, module_d_prompt)
+            except Exception as e_d:
+                print(f"Module D failed: {e_d}")
+
+        successful_modules = sum(1 for m in (module_a, module_b, module_c, module_d) if isinstance(m, dict) and len(m) > 0)
+        if successful_modules < 1:
+            raise RuntimeError("Insufficient modular outputs for deep-dive merge")
+
+        merged = self._merge_modular_outputs(
+            customer_data=customer_data,
+            extra_context=extra_context,
+            module_a=module_a,
+            module_b=module_b,
+            module_c=module_c,
+            module_d=module_d,
+        )
+        return merged
+
+    def _merge_modular_outputs(
+        self,
+        customer_data: Dict,
+        extra_context: Dict,
+        module_a: Dict,
+        module_b: Dict,
+        module_c: Dict,
+        module_d: Dict,
+    ) -> Dict:
+        """Merge module outputs into the canonical profile schema used by exports and UI."""
+        base = self._generate_fallback_profile(customer_data, extra_context)
+
+        def _txt(v) -> str:
+            return str(v).strip() if v is not None else ""
+
+        def _join(*parts) -> str:
+            non_empty = [
+                _txt(p) for p in parts
+                if _txt(p) and _txt(p).lower() not in {"n/a", "none", "null", "{}", "[]"}
+            ]
+            return "\n\n".join(non_empty)
+
+        # Module A -> basic corporate foundation
+        if isinstance(module_a.get("basic_data"), dict):
+            base["basic_data"].update(module_a.get("basic_data", {}))
+
+        # Module B location audit enriches locations
+        if isinstance(module_b.get("location_audit"), list) and module_b.get("location_audit"):
+            base["locations"] = module_b.get("location_audit", [])[:30]
+
+        # Priority analysis synthesized from A+B+C+D
+        base["priority_analysis"]["company_explainer"] = _join(
+            module_a.get("strategic_vision_steel_2030", ""),
+            module_b.get("operational_summary", ""),
+            module_c.get("market_share_analysis", ""),
+        ) or base["priority_analysis"].get("company_explainer", "")
+
+        base["priority_analysis"]["key_opportunity_drivers"] = _join(
+            module_b.get("equipment_detail_summary", ""),
+            module_c.get("sales_implications", ""),
+            module_d.get("compliance_implications_for_sms", ""),
+        ) or base["priority_analysis"].get("key_opportunity_drivers", "")
+
+        base["priority_analysis"]["engagement_recommendation"] = _join(
+            module_c.get("relationship_management", {}).get("relationship_status", "") if isinstance(module_c.get("relationship_management"), dict) else "",
+            module_c.get("sales_implications", ""),
+            module_d.get("risk_assessment", ""),
+            module_d.get("framework_agreements", ""),
+        ) or base["priority_analysis"].get("engagement_recommendation", "")
+
+        # History and relationship details
+        rm = module_c.get("relationship_management", {}) if isinstance(module_c.get("relationship_management"), dict) else {}
+        base["history"]["latest_projects"] = _join(module_b.get("latest_projects", "")) or base["history"].get("latest_projects", "")
+        base["history"]["realized_projects"] = _join(module_b.get("realized_projects", ""))
+        base["history"]["crm_rating"] = _txt(rm.get("customer_rating", base["history"].get("crm_rating", "")))
+        base["history"]["key_person"] = _txt(rm.get("key_persons", base["history"].get("key_person", "")))
+        base["history"]["latest_visits"] = _txt(rm.get("latest_visit_sentiment", base["history"].get("latest_visits", "")))
+        base["history"]["sms_relationship"] = _txt(rm.get("sms_contacts", base["history"].get("sms_relationship", "")))
+
+        # Market intelligence
+        base["market_intelligence"]["financial_health"] = _join(
+            module_a.get("financial_trend_5y", ""),
+            module_a.get("workforce_strategy", ""),
+        ) or base["market_intelligence"].get("financial_health", "")
+        base["market_intelligence"]["market_position"] = _join(
+            module_c.get("downstream_customer_analysis", ""),
+            module_c.get("market_share_analysis", ""),
+        ) or base["market_intelligence"].get("market_position", "")
+        base["market_intelligence"]["strategic_outlook"] = _join(module_a.get("strategic_vision_steel_2030", ""))
+        base["market_intelligence"]["risk_assessment"] = _join(module_d.get("risk_assessment", ""))
+
+        # Country intelligence and risk/compliance context
+        base["country_intelligence"]["trade_tariff_context"] = _join(
+            base["country_intelligence"].get("trade_tariff_context", ""),
+            module_d.get("embargo_exposure", ""),
+        )
+        base["country_intelligence"]["investment_drivers"] = _join(
+            base["country_intelligence"].get("investment_drivers", ""),
+            module_d.get("esg_and_cbam_alignment", ""),
+        )
+
+        # Metallurgical insights
+        metallurgical = module_b.get("metallurgical_findings", {}) if isinstance(module_b.get("metallurgical_findings"), dict) else {}
+        for key in ["process_efficiency", "carbon_footprint_strategy", "modernization_potential", "technical_bottlenecks"]:
+            if _txt(metallurgical.get(key, "")):
+                base["metallurgical_insights"][key] = _txt(metallurgical.get(key, ""))
+
+        # Sales strategy
+        base["sales_strategy"]["value_proposition"] = _join(
+            module_c.get("sales_implications", ""),
+            module_d.get("compliance_implications_for_sms", ""),
+            module_b.get("equipment_detail_summary", ""),
+        ) or base["sales_strategy"].get("value_proposition", "")
+        base["sales_strategy"]["recommended_portfolio"] = _join(module_b.get("equipment_detail_summary", ""))
+        base["sales_strategy"]["competitive_landscape"] = _join(module_c.get("market_share_analysis", ""))
+        base["sales_strategy"]["suggested_next_steps"] = _join(
+            module_c.get("sales_implications", ""),
+            module_d.get("risk_assessment", ""),
+            module_d.get("framework_agreements", ""),
+        )
+
+        # Statistical interpretation enriched by operational audit summary
+        base["statistical_interpretations"]["charts_explanation"] = _join(
+            base["statistical_interpretations"].get("charts_explanation", ""),
+            module_b.get("operational_summary", ""),
+        )
+
+        # References
+        refs = []
+        for source in (
+            module_a.get("references", []),
+            module_b.get("references", []),
+            module_c.get("references", []),
+            module_d.get("references", []),
+        ):
+            if isinstance(source, list):
+                refs.extend([_txt(s) for s in source if _txt(s)])
+
+        refs.extend([
+            "AIST (Association for Iron & Steel Technology) - installed base and process references",
+            "Global Energy Monitor - Steel Plant Tracker",
+            "D&B Hoovers - management and workforce signals",
+            "Enhesa / RegScan - ESG and compliance signals",
+            "Salesforce / MS Dynamics CRM - relationship and visit intelligence",
+        ])
+
+        dedup_refs = []
+        seen = set()
+        for r in refs:
+            key = r.strip().lower()
+            if key and key not in seen:
+                seen.add(key)
+                dedup_refs.append(r)
+        base["references"] = dedup_refs[:30]
+
+        # Preserve all module narratives for extended exports and audits
+        base["modular_sections"] = {
+            "module_a": module_a,
+            "module_b": module_b,
+            "module_c": module_c,
+            "module_d": module_d,
+        }
+        base["modular_strategy"] = {
+            "enabled": True,
+            "approach": "A-B-C-D sequential drafting",
+            "target_report_type": "Deep-Dive Industrial Profile",
+        }
+        
+        # Sanitize basic_data to ensure all fields are strings (not nested objects)
+        if isinstance(base.get("basic_data"), dict):
+            for key in base["basic_data"]:
+                val = base["basic_data"][key]
+                if isinstance(val, dict):
+                    # Convert nested object to readable string
+                    base["basic_data"][key] = " | ".join(
+                        f"{k}: {str(v)}" for k, v in val.items() if v is not None
+                    ) or str(val)
+                elif isinstance(val, list):
+                    # Convert list to comma-separated string
+                    base["basic_data"][key] = ", ".join(str(v) for v in val if v is not None) or str(val)
+                elif val is not None:
+                    base["basic_data"][key] = str(val)
+        
+        return base
 
     def _extract_json(self, content: str) -> Dict:
         """Parse model output into a JSON object, tolerating fenced output."""
@@ -442,31 +817,96 @@ class ProfileGeneratorService:
         )
 
     def _create_compact_safe_prompt(self, context: str) -> str:
-        """Compact prompt designed to reduce false-positive content filtering."""
-        return f"""
-Create a customer profile JSON for SMS group based on the factual business context below.
+        """Compact prompt that generates full McKinsey-depth content from a condensed context."""
+        return f"""You are a senior SMS group sales strategist and metallurgical expert generating executive-level customer intelligence for B2B steel-industry sales teams.
 
-CONTEXT:
+BUSINESS CONTEXT:
 {context}
 
-Return valid JSON only, no markdown.
-Required top-level keys:
-- basic_data
-- locations
-- priority_analysis
-- history
-- market_intelligence
-- country_intelligence
-- metallurgical_insights
-- sales_strategy
-- statistical_interpretations
-- references
+Using your deep steel-industry expertise, generate a comprehensive customer intelligence profile. Where specific data is limited, provide substantive working hypotheses grounded in steel industry benchmarks and label them "Working hypothesis:". Every text field must be written at McKinsey/BCG analytical depth.
 
-Rules:
-- Use concise but meaningful business analysis.
-- If data is missing, state 'Not available' or 'Working hypothesis: ...'.
-- Include manager briefing implications in market_intelligence and sales_strategy.
-"""
+Return a single valid JSON object — no markdown, no fences, no commentary:
+{{
+  "basic_data": {{
+    "name": "company name",
+    "hq_address": "HQ city and country",
+    "owner": "parent company or ownership structure",
+    "management": "key executives if known",
+    "ceo": "CEO name if known",
+    "fte": "employee count or range",
+    "financials": "revenue / EBITDA overview with analytical commentary (2-3 sentences)",
+    "company_focus": "precise steel segment, product mix, downstream positioning (2-3 sentences)",
+    "ownership_history": "ownership timeline and M&A context"
+  }},
+  "locations": [
+    {{
+      "address": "plant address",
+      "city": "city",
+      "country": "country",
+      "final_products": "products manufactured",
+      "tons_per_year": "annual capacity",
+      "installed_base": [
+        {{"equipment_type": "type", "manufacturer": "OEM", "year_of_startup": "year", "status": "Operational/Idle"}}
+      ]
+    }}
+  ],
+  "priority_analysis": {{
+    "priority_score": "0-100 numeric score",
+    "priority_rank": "priority tier or rank",
+    "company_explainer": "WRITE MINIMUM 4 SUBSTANTIVE PARAGRAPHS: (1) Company context and strategic position in global steel. (2) Installed-base size, equipment age profile, geographic spread and modernization urgency assessment. (3) Financial strength and capex readiness — what can they realistically invest in the next 3 years? (4) SMS commercial opportunity: OEM displacement, greenfield/revamp scope, green steel alignment. End with clear investment priority verdict for SMS account management. Cite specific equipment counts, countries, and years where available.",
+    "key_opportunity_drivers": "WRITE MINIMUM 3 SUBSTANTIVE PARAGRAPHS: (1) Top 3-5 equipment families with replacement/upgrade potential — name specific product families (EAF, BOF, CSP, ESP, rolling mill, downstream). (2) Decarbonization and energy reduction opportunity aligned to SMS product portfolio. (3) Historical SMS penetration, OEM lock-in risk, and probability of displacement.",
+    "engagement_recommendation": "WRITE MINIMUM 3 SUBSTANTIVE PARAGRAPHS: (1) Recommended entry strategy, priority sites, and technical champions. (2) Specific SMS solutions to introduce in the first customer interaction. (3) Risks, competitive response, and mitigation approach."
+  }},
+  "history": {{
+    "latest_projects": "PROJECT TRACK RECORD: Any known SMS-supplied projects, what process technology was supplied, approximate value bands, and current status. If data unavailable, state explicitly and provide working hypothesis on relationship maturity.",
+    "total_won_value_eur": "EUR amount from CRM or estimate",
+    "win_rate_pct": "win rate from CRM or industry benchmark estimate",
+    "sms_relationship": "SMS account owner or responsible team",
+    "crm_rating": "relationship quality rating from CRM",
+    "key_person": "key customer decision-maker or procurement contact",
+    "latest_visits": "most recent customer visit or interaction",
+    "realized_projects": "summary of completed projects value and scope"
+  }},
+  "market_intelligence": {{
+    "financial_health": "WRITE MINIMUM 3 SUBSTANTIVE PARAGRAPHS: (1) Revenue scale and trend, EBITDA margin, net debt / leverage. (2) Capex history and planned investment — can they fund a major revamp? (3) Key financial risks (commodity exposure, FX, refinancing). Interpret what this means for SMS sales timing.",
+    "market_position": "WRITE MINIMUM 2 PARAGRAPHS: Product mix vs competitors, downstream customer concentration, pricing power, share in domestic market.",
+    "recent_developments": "Recent strategic moves: new plant investments, closures, acquisitions, decarbonization commitments, production records.",
+    "strategic_outlook": "3-5 year strategic view: expansion, consolidation, green transition, or restructuring? What decisions will shape their capex pipeline?",
+    "risk_assessment": "Key risks for SMS engagement: competitor lock-in, financial distress, geopolitical, project execution, or market demand risks."
+  }},
+  "country_intelligence": {{
+    "steel_market_summary": "National steel production volume, key producers, product split, and utilization rate if available.",
+    "economic_context": "GDP growth, industrial output trend, currency stability, and FDI climate.",
+    "trade_tariff_context": "Import/export dynamics, safeguard measures, anti-dumping, and EU carbon border implications if relevant.",
+    "automotive_sector": "Automotive production trend as downstream signal for flat steel demand and quality upgrade pressure.",
+    "investment_drivers": "Top 3 investment catalysts: energy cost reduction, quality upgrade, decarbonization regulation, or modernization age."
+  }},
+  "metallurgical_insights": {{
+    "process_efficiency": "WRITE MINIMUM 2 SUBSTANTIVE PARAGRAPHS: Equipment age distribution and what it implies for process reliability. Estimate yield loss, energy intensity, and maintenance shutdown frequency for a fleet of this age. Name specific process bottlenecks (casting speed, rolling mill gaps, cooling, HMI).",
+    "carbon_footprint_strategy": "CO2 route assessment (BF/BOF vs EAF). Green steel transition readiness. Likely hydrogen pathway, power availability, DRI fit. How SMS decarbonization portfolio (EAF, H2-ready burners, energy tracking) applies.",
+    "modernization_potential": "WRITE MINIMUM 2 SUBSTANTIVE PARAGRAPHS: Rank equipment families by modernization urgency. Name specific SMS technology modules (X-Pact automation, EAF package, Flexible Slab Caster, downstream finishing line, Innex cooling, Level 2 optimization) that match the fleet profile.",
+    "technical_bottlenecks": "Identify 3-5 specific technical constraints: automation layer age, HMI legacy, refractory management, cooling water systems, sensor coverage, data historian gaps. Recommend targeted X-Pact digitalization entry points."
+  }},
+  "sales_strategy": {{
+    "value_proposition": "WRITE MINIMUM 5 SUBSTANTIVE PARAGRAPHS: (1) Opening narrative: why SMS group is strategically relevant for this customer now. (2) KPI-linked value case — quantify at least 3 performance levers: yield improvement (%), energy saving (kWh/t), uptime gain (h/year), CO2 reduction (kg/t). (3) Phased scope: Service quick wins (6-18 months) → digital revamp (18-36 months) → capex modernization (36-60 months). (4) Competitive differentiation: what SMS can deliver that Danieli, Primetals, or Fives cannot — be specific by product family. (5) Executive engagement strategy: who to reach and with what message.",
+    "recommended_portfolio": "List specific SMS product families and services with rationale: e.g., X-Pact Level 2 optimization, EAF package, CSP Flex, Innex cooling, service contracts, spare parts.",
+    "competitive_landscape": "Known or likely competitor presence (Danieli, Primetals Technologies, Fives, SMS competitors). What each competitor has installed or is pitching. SMS differentiation and weaknesses to prepare for.",
+    "suggested_next_steps": "3-5 concrete actions: e.g., schedule plant diagnostic visit, prepare value case for specific bottleneck, nominate technical champion for DRI workshop, submit EAF reference case."
+  }},
+  "statistical_interpretations": {{
+    "charts_explanation": "WRITE MINIMUM 2 SUBSTANTIVE PARAGRAPHS: (1) Describe the installed-base composition: equipment type spread, top OEMs, geographic distribution, and operational status mix. (2) Interpret the age distribution and capacity profile in commercial terms: which sites or equipment are in the critical modernization window (15-25 years)? What does the capacity distribution imply about customer ambition and scale?"
+  }},
+  "references": [
+    "List any data sources, internal documents, or public references used — or state 'SMS internal installed-base data' / 'Industry benchmark estimates'"
+  ]
+}}
+
+CRITICAL RULES:
+- Every field tagged WRITE MINIMUM N PARAGRAPHS must meet that minimum.
+- Use \\n\\n between paragraphs in long strings.
+- Replace empty phrases ('analysis pending', 'not available', 'strong market position') with steel-industry working hypotheses.
+- SMS group sells: EAF/BOF equipment, continuous casting, hot/cold rolling mills, downstream finishing, X-Pact automation, environmental systems, and service.
+- Competitors: Danieli (Italy), Primetals Technologies (Austria/Japan), Fives (France), SMS's own legacy installed base."""
 
 
     def _create_profile_prompt(self, context: str) -> str:

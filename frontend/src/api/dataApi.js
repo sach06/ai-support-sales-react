@@ -1,12 +1,22 @@
 import api from './client';
 
+// /data/load should return quickly after spawning a background worker.
+// Keep this request short and rely on /data/progress polling for long operations.
+const DATA_LOAD_TIMEOUT_MS = 10000;
+const DATA_STATUS_TIMEOUT_MS = 120000; // long timeout, but bounded so polling can recover
+
 export const loadData = async () => {
-    const response = await api.post('/data/load');
+    const response = await api.post('/data/load', null, {
+        timeout: DATA_LOAD_TIMEOUT_MS,
+    });
     return response.data;
 };
 
-export const getDataStatus = async () => {
-    const response = await api.get('/data/status');
+export const getDataStatus = async (jobId = null) => {
+    const response = await api.get('/data/status', {
+        params: jobId ? { job_id: jobId } : undefined,
+        timeout: DATA_STATUS_TIMEOUT_MS,
+    });
     return response.data;
 };
 
@@ -35,8 +45,11 @@ export const getCustomers = async (filters) => {
     return response.data;
 };
 
-export const getLoadProgress = async () => {
-    const response = await api.get('/data/progress');
+export const getLoadProgress = async (jobId = null) => {
+    const response = await api.get('/data/progress', {
+        params: jobId ? { job_id: jobId } : undefined,
+        timeout: DATA_STATUS_TIMEOUT_MS,
+    });
     return response.data;
 };
 

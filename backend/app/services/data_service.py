@@ -1408,7 +1408,10 @@ class DataIngestionService:
     def close(self):
         """Close database connection"""
         if self.conn:
-            self.conn.close()
+            try:
+                self.conn.close()
+            finally:
+                self.conn = None
 
 
 # Singleton instance

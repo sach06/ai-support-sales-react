@@ -28,7 +28,10 @@ const Layout = () => {
     const [rematching, setRematching] = useState(false);
     const [rematchMsg, setRematchMsg] = useState('');
     const [companySearchTerm, setCompanySearchTerm] = useState('');
+    const [activeLoadJobId, setActiveLoadJobId] = useState(null);
     const pollRef = useRef(null);
+    const pollInFlightRef = useRef(false);
+    const pollFailuresRef = useRef(0);
 
     // Queries to fetch the filter lists (Countries, Regions, Equipment)
     const { data: regionsList = ['All'] } = useQuery({ queryKey: ['regions'], queryFn: getRegions, enabled: dataLoaded });
@@ -69,17 +72,31 @@ const Layout = () => {
     // Progress polling
     const stopPolling = useCallback(() => {
         if (pollRef.current) {
-            clearInterval(pollRef.current);
+            clearTimeout(pollRef.current);
             pollRef.current = null;
         }
+        pollInFlightRef.current = false;
+        pollFailuresRef.current = 0;
     }, []);
 
-    const startPolling = useCallback(() => {
+    const startPolling = useCallback((jobId = null) => {
         stopPolling();
-        pollRef.current = setInterval(async () => {
+
+        const pollOnce = async () => {
+            if (pollInFlightRef.current) {
+                pollRef.current = setTimeout(pollOnce, 1200);
+                return;
+            }
+
+            pollInFlightRef.current = true;
             try {
-                const progress = await getLoadProgress();
+                const progress = await getLoadProgress(jobId);
+                pollFailuresRef.current = 0;
                 setLoadProgress(progress);
+
+                if (progress?.job_id) {
+                    setActiveLoadJobId(progress.job_id);
+                }
 
                 // Sync logs
                 if (progress.logs && progress.logs.length > 0) {
@@ -99,11 +116,22 @@ const Layout = () => {
                             setLoadProgress(null);
                         }
                     }, 3000);
+                    return;
                 }
             } catch (err) {
-                console.error("Failed to poll progress:", err);
+                pollFailuresRef.current += 1;
+                if (pollFailuresRef.current % 3 === 0) {
+                    console.error("Failed to poll progress:", err);
+                }
+            } finally {
+                pollInFlightRef.current = false;
+                // Back off slightly on repeated failures to reduce request pressure.
+                const delay = pollFailuresRef.current >= 3 ? 2500 : 1200;
+                pollRef.current = setTimeout(pollOnce, delay);
             }
-        }, 1000);
+        };
+
+        pollRef.current = setTimeout(pollOnce, 0);
     }, [stopPolling, clearLogs, addLog, setDataLoaded]);
 
     // Check Data Loaded status on initial app boot
@@ -111,8 +139,13 @@ const Layout = () => {
         const checkStatus = async () => {
             try {
                 const status = await getDataStatus();
-                const progress = await getLoadProgress().catch(() => null);
+                const statusJobId = status?.job_id || null;
+                const progress = await getLoadProgress(statusJobId).catch(() => null);
                 const isReloading = Boolean(progress?.running);
+
+                if (statusJobId) {
+                    setActiveLoadJobId(statusJobId);
+                }
 
                 if (progress) {
                     setLoadProgress(progress);
@@ -122,18 +155,22 @@ const Layout = () => {
                 setDataLoaded(Boolean(status.loaded) && !isReloading);
 
                 if (isReloading) {
-                    startPolling();
+                    startPolling(statusJobId || progress?.job_id || null);
                 }
             } catch (error) {
                 try {
-                    const progress = await getLoadProgress();
+                    const progress = await getLoadProgress(activeLoadJobId);
                     const loadCompleted = Boolean(progress.done && !progress.error);
                     setLoadProgress(progress);
                     setLoadingDb(Boolean(progress.running));
                     setDataLoaded(loadCompleted && !progress.running);
 
+                    if (progress?.job_id) {
+                        setActiveLoadJobId(progress.job_id);
+                    }
+
                     if (progress.running) {
-                        startPolling();
+                        startPolling(progress.job_id || activeLoadJobId || null);
                     }
                 } catch (progressError) {
                     console.error("Failed to fetch data status:", progressError);
@@ -142,7 +179,7 @@ const Layout = () => {
             }
         };
         checkStatus();
-    }, [setDataLoaded, startPolling]);
+    }, [setDataLoaded, startPolling, activeLoadJobId]);
 
     // Cleanup on unmount
     useEffect(() => {
@@ -155,9 +192,24 @@ const Layout = () => {
         setLoadProgress({ running: true, step: 'Starting...', percent: 0, done: false, error: null, logs: [] });
         clearLogs();
         try {
-            await loadData();
-            startPolling();
+            const result = await loadData();
+            const jobId = result?.job_id || null;
+            setActiveLoadJobId(jobId);
+            startPolling(jobId);
         } catch (error) {
+            // The backend endpoint starts a background job. If this start request
+            // times out, the job may still be running: switch to polling instead
+            // of failing immediately.
+            const isTimeout =
+                error?.code === 'ECONNABORTED' ||
+                String(error?.message || '').toLowerCase().includes('timeout');
+
+            if (isTimeout) {
+                addLog('Load start request timed out. Checking background progress...');
+                startPolling(activeLoadJobId);
+                return;
+            }
+
             console.error("Failed to load data:", error);
             addLog("Error loading data: " + error.message);
             setLoadingDb(false);

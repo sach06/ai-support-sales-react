@@ -15,6 +15,13 @@ const CustomerDetailPage = () => {
     const [profileData, setProfileData] = useState(null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
+    const [activeExportFormat, setActiveExportFormat] = useState(null);
+    const [exportStatus, setExportStatus] = useState({
+        docx: 'idle',
+        pdf: 'idle',
+        pptx: 'idle',
+    });
+    const [exportProgressMsg, setExportProgressMsg] = useState('');
     const [isReindexing, setIsReindexing] = useState(false);
     const [errorMsg, setErrorMsg] = useState(null);
     const [knowledgeActionMsg, setKnowledgeActionMsg] = useState(null);
@@ -89,7 +96,11 @@ const CustomerDetailPage = () => {
 
     const handleExport = async (format) => {
         if (!profileData) return;
+        setErrorMsg(null);
         setIsExporting(true);
+        setActiveExportFormat(format);
+        setExportStatus((prev) => ({ ...prev, [format]: 'running' }));
+        setExportProgressMsg(`Preparing ${format.toUpperCase()} export...`);
 
         try {
             if (format === 'docx') {
@@ -99,12 +110,25 @@ const CustomerDetailPage = () => {
             } else if (format === 'pptx') {
                 await exportPptx(profileData, companyName);
             }
+            setExportStatus((prev) => ({ ...prev, [format]: 'success' }));
+            setExportProgressMsg(`${format.toUpperCase()} export ready. Download started.`);
         } catch (err) {
             console.error(`Failed to export ${format}:`, err);
-            alert(`Failed to export document. Check console for details.`);
+            const detail = err?.message || `Failed to export ${format.toUpperCase()} document.`;
+            setExportStatus((prev) => ({ ...prev, [format]: 'error' }));
+            setExportProgressMsg(`${format.toUpperCase()} export failed.`);
+            setErrorMsg(detail);
         } finally {
             setIsExporting(false);
+            setActiveExportFormat(null);
         }
+    };
+
+    const renderExportButtonLabel = (format, defaultLabel) => {
+        if (activeExportFormat === format && isExporting) return `${defaultLabel} Generating...`;
+        if (exportStatus[format] === 'success') return `${defaultLabel} Done`;
+        if (exportStatus[format] === 'error') return `${defaultLabel} Retry`;
+        return defaultLabel;
     };
 
     if (companyName === 'All') {
@@ -169,22 +193,33 @@ const CustomerDetailPage = () => {
                                 onClick={() => handleExport('docx')}
                                 disabled={isExporting}
                             >
-                                📄 DOCX
+                                📄 {renderExportButtonLabel('docx', 'DOCX')}
                             </button>
                             <button
                                 className="btn-secondary btn-export"
                                 onClick={() => handleExport('pdf')}
                                 disabled={isExporting}
                             >
-                                📑 PDF
+                                📑 {renderExportButtonLabel('pdf', 'PDF')}
                             </button>
                             <button
                                 className="btn-secondary btn-export"
                                 onClick={() => handleExport('pptx')}
                                 disabled={isExporting}
                             >
-                                📊 PPTX
+                                📊 {renderExportButtonLabel('pptx', 'PPTX')}
                             </button>
+                        </div>
+                    )}
+
+                    {exportProgressMsg && (
+                        <div className="export-progress-panel">
+                            <div className="export-progress-msg">{exportProgressMsg}</div>
+                            <div className="export-progress-chips">
+                                <span className={`export-chip export-chip-${exportStatus.docx}`}>DOCX: {exportStatus.docx}</span>
+                                <span className={`export-chip export-chip-${exportStatus.pdf}`}>PDF: {exportStatus.pdf}</span>
+                                <span className={`export-chip export-chip-${exportStatus.pptx}`}>PPTX: {exportStatus.pptx}</span>
+                            </div>
                         </div>
                     )}
                 </div>
