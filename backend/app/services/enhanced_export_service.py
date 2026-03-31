@@ -253,9 +253,33 @@ class EnhancedExportService:
             row.cells[0].text = label
             row.cells[1].text = str(value)
             row.cells[0].paragraphs[0].runs[0].font.bold = True
-        
-        # 1.3 Equipment distribution
-        doc.add_heading('1.3 Equipment Distribution', level=2)
+
+        # 1.3 Plant Locations (filtered to customer primary country)
+        locs = profile_data.get('locations', [])
+        if locs:
+            doc.add_heading('1.3 Plant Locations', level=2)
+            filter_country = (customer_data or {}).get('crm_country', '')
+            if filter_country:
+                filtered_locs = [loc for loc in locs if str(loc.get('country', '')).strip().lower() == filter_country.lower()]
+                filtered_locs = filtered_locs if filtered_locs else locs[:20]
+            else:
+                filtered_locs = locs[:20]
+            loc_table = doc.add_table(rows=0, cols=4)
+            loc_table.style = 'Light Grid Accent 1'
+            hdr_row = loc_table.add_row()
+            for j, h in enumerate(['City', 'Country', 'Products', 'Capacity (t/y)']):
+                hdr_row.cells[j].text = h
+                if hdr_row.cells[j].paragraphs[0].runs:
+                    hdr_row.cells[j].paragraphs[0].runs[0].font.bold = True
+            for loc in filtered_locs:
+                data_row = loc_table.add_row()
+                data_row.cells[0].text = str(loc.get('city', ''))
+                data_row.cells[1].text = str(loc.get('country', ''))
+                data_row.cells[2].text = str(loc.get('final_products', ''))
+                data_row.cells[3].text = str(loc.get('tons_per_year', ''))
+
+        # 1.4 Equipment distribution
+        doc.add_heading('1.4 Equipment Distribution', level=2)
         if charts:
             if 'Equipment Distribution' in charts:
                 self._add_chart_to_doc(doc, charts['Equipment Distribution'], 'Portfolio Mix')
@@ -266,8 +290,8 @@ class EnhancedExportService:
                     doc.add_heading(f'Fleet Insight: {chart_name}', level=3)
                     self._add_chart_to_doc(doc, charts[chart_name], chart_name)
 
-        # 1.4 Statistical data analysis
-        doc.add_heading('1.4 Statistical Data Analysis', level=2)
+        # 1.5 Statistical data analysis
+        doc.add_heading('1.5 Statistical Data Analysis', level=2)
         stat = profile_data.get('statistical_interpretations', {})
         if stat and stat.get('charts_explanation'):
             doc.add_paragraph(str(stat.get('charts_explanation', '')))
@@ -292,21 +316,40 @@ class EnhancedExportService:
         doc.add_heading('Recent News & Developments', level=1)
         if 'recent_news' in profile_data:
             news_items = profile_data['recent_news']
-            for news in news_items[:10]:
+            for idx, news in enumerate(news_items[:10], start=1):
+                # Title line as a numbered, bold heading
                 p = doc.add_paragraph(style='List Number')
                 title = news.get('title', 'No title')
                 url = news.get('url')
+                title_run = p.add_run(title)
+                title_run.font.bold = True
                 if url:
-                    self._add_hyperlink(p, title, url)
-                else:
-                    p.add_run(title).font.bold = True
+                    try:
+                        self._add_hyperlink(p, f" [{news.get('source', 'link')}]", url)
+                    except Exception:
+                        pass
 
-                published_date = news.get('published_date', 'Unknown date')
-                if published_date:
-                    p.add_run(f" ({published_date})")
+                published_date = news.get('published_date', '')
+                source = news.get('source', '')
+                meta_parts = [x for x in [published_date, source] if x]
+                if meta_parts:
+                    p.add_run(f"  ({' | '.join(meta_parts)})").font.color.rgb = RGBColor(120, 120, 120)
 
-                if news.get('description'):
-                    doc.add_paragraph(str(news['description']), style='List Bullet 2')
+                # 3-4 line summary of the news article
+                desc = str(news.get('description') or news.get('summary') or '').strip()
+                if desc:
+                    # Truncate to roughly 4 sentences / ~600 chars for concise summary
+                    sentences = [s.strip() for s in desc.replace('\n', ' ').split('. ') if s.strip()]
+                    summary = '. '.join(sentences[:4])
+                    if summary and not summary.endswith('.'):
+                        summary += '.'
+                    if len(summary) > 650:
+                        summary = summary[:647] + '...'
+                    sq = doc.add_paragraph(style='Normal')
+                    sq.paragraph_format.left_indent = Inches(0.3)
+                    sq.paragraph_format.space_after = Pt(6)
+                    sq.add_run(summary).font.size = Pt(10)
+                doc.add_paragraph()  # spacing between news items
         else:
             doc.add_paragraph('No recent news available.')
         doc.add_page_break()
@@ -336,6 +379,9 @@ class EnhancedExportService:
 
             for key, value in payload.items():
                 if not value:
+                    continue
+                # Skip per-module reference lists — consolidated in Section 15
+                if str(key).lower() in ('references', 'sources', 'citations'):
                     continue
                 pretty_key = str(key).replace('_', ' ').title()
                 doc.add_heading(pretty_key, level=3)
@@ -423,7 +469,7 @@ class EnhancedExportService:
         for label, val in [
             ('Total Projects',   str(len(projects_dd))),
             ('Active Projects',  str(active_projects)),
-            ('Total Equipment',  str(len(installed_dd))),
+            ('Total Equipment (CRM Export)',  str(len(installed_dd))),
             ('Total Revenue',    f'EUR {total_rev:,.0f}'),
         ]:
             row = table.add_row()
@@ -467,12 +513,7 @@ class EnhancedExportService:
             for competitor in market_intel['competitors']:
                 doc.add_paragraph(competitor, style='List Bullet')
 
-        if market_intel.get('sources'):
-            doc.add_heading('Sources', level=3)
-            for source in market_intel['sources']:
-                p = doc.add_paragraph(style='List Bullet')
-                p.add_run(source).font.italic = True
-
+        # NOTE: sources/references are consolidated in the final References section (Section 15)
         doc.add_page_break()
     
     def _add_project_section(self, doc: Document, projects: List[Dict], charts: Dict):
@@ -570,12 +611,66 @@ class EnhancedExportService:
             doc.add_paragraph(f"[Chart: {caption}] - Error generating chart image")
     
     def _add_footer(self, doc: Document):
-        """Add document footer"""
-        section = doc.sections[0]
-        footer = section.footer
-        p = footer.paragraphs[0]
-        p.text = f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Customer Analysis Report | CONFIDENTIAL"
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        """Add document footer with page numbers to every section."""
+
+        def _make_rpr():
+            """Create a fresh w:rPr element (8pt, grey). Must be called per-run."""
+            rpr = OxmlElement('w:rPr')
+            sz = OxmlElement('w:sz')
+            sz.set(qn('w:val'), '16')  # 8pt
+            col = OxmlElement('w:color')
+            col.set(qn('w:val'), '999999')
+            rpr.append(sz)
+            rpr.append(col)
+            return rpr
+
+        def _text_run(para_elem, text: str):
+            r = OxmlElement('w:r')
+            r.append(_make_rpr())
+            t = OxmlElement('w:t')
+            t.set(qn('xml:space'), 'preserve')
+            t.text = text
+            r.append(t)
+            para_elem.append(r)
+
+        def _field_run(para_elem, field_code: str):
+            """Append a PAGE or NUMPAGES field run (3 runs: begin / instr / end)."""
+            r_begin = OxmlElement('w:r')
+            r_begin.append(_make_rpr())
+            begin = OxmlElement('w:fldChar')
+            begin.set(qn('w:fldCharType'), 'begin')
+            r_begin.append(begin)
+
+            r_instr = OxmlElement('w:r')
+            r_instr.append(_make_rpr())
+            instr = OxmlElement('w:instrText')
+            instr.set(qn('xml:space'), 'preserve')
+            instr.text = f' {field_code} '
+            r_instr.append(instr)
+
+            r_end = OxmlElement('w:r')
+            r_end.append(_make_rpr())
+            end_fc = OxmlElement('w:fldChar')
+            end_fc.set(qn('w:fldCharType'), 'end')
+            r_end.append(end_fc)
+
+            para_elem.append(r_begin)
+            para_elem.append(r_instr)
+            para_elem.append(r_end)
+
+        for section in doc.sections:
+            footer = section.footer
+            footer.is_linked_to_previous = False
+            fp = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+            fp.clear()
+            fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+            p_elem = fp._p
+            _text_run(p_elem, f"Customer Analysis Report | CONFIDENTIAL    |    Page ")
+            _field_run(p_elem, 'PAGE')
+            _text_run(p_elem, " of ")
+            _field_run(p_elem, 'NUMPAGES')
+            _text_run(p_elem, f"    |    Generated {datetime.now().strftime('%Y-%m-%d')}")
 
     # ── NEW sections (CRM History, IB, Metallurgical, Sales Strategy, Relationship, Priority, Country) ─
 
@@ -686,23 +781,24 @@ class EnhancedExportService:
             doc.add_page_break()
             return
 
-        src = crm_history.get('source', '')
-        if src:
-            p = doc.add_paragraph()
-            p.add_run('Data source: ').font.bold = True
-            p.add_run(src).font.italic = True
+        # Sources are intentionally consolidated in the final References section.
 
         yearly_df = crm_history.get('yearly_df')
         if yearly_df is not None and not yearly_df.empty:
             doc.add_heading('Year-by-Year Summary', level=3)
             rows = [['Year', 'Projects', 'Total Pipeline (EUR)', 'Won Value (EUR)', 'Win Rate %']]
             for _, r in yearly_df.iterrows():
+                raw_year = r.get('Year', '')
+                try:
+                    year_str = str(int(float(raw_year))) if raw_year not in ('', None) else ''
+                except (ValueError, TypeError):
+                    year_str = str(raw_year)
                 rows.append([
-                    str(r.get('Year', '')),
-                    str(int(r.get('Projects', 0))),
-                    f"EUR {float(r.get('Total Value (EUR)', 0)):,.0f}",
-                    f"EUR {float(r.get('Won Value (EUR)', 0)):,.0f}",
-                    f"{float(r.get('Win Rate %', 0)):.1f}%",
+                    year_str,
+                    str(int(r.get('Projects', 0) or 0)),
+                    f"EUR {float(r.get('Total Value (EUR)', 0) or 0):,.0f}",
+                    f"EUR {float(r.get('Won Value (EUR)', 0) or 0):,.0f}",
+                    f"{float(r.get('Win Rate %', 0) or 0):.1f}%",
                 ])
             table = doc.add_table(rows=0, cols=5)
             table.style = 'Medium Grid 1 Accent 1'
@@ -749,17 +845,13 @@ class EnhancedExportService:
             doc.add_page_break()
             return
 
-        src = ib_data.get('source', '')
-        if src:
-            p = doc.add_paragraph()
-            p.add_run('Data source: ').font.bold = True
-            p.add_run(src).font.italic = True
+        # Sources are intentionally consolidated in the final References section.
 
         doc.add_heading('IB Summary', level=2)
         table = doc.add_table(rows=0, cols=2)
         table.style = 'Light Grid Accent 1'
         for label, val in [
-            ('Equipment Units',     str(ib_data.get('n_units', 0))),
+            ('Equipment Units (IB List)',     str(ib_data.get('n_units', 0))),
             ('Average Age (years)', str(ib_data.get('avg_age', 'N/A'))),
             ('Equipment Types',     ', '.join(str(t) for t in ib_data.get('equipment_types', [])) or 'N/A'),
             ('Countries / Regions', ', '.join(str(c) for c in ib_data.get('countries', [])) or 'N/A'),
@@ -1181,9 +1273,37 @@ class EnhancedExportService:
             elements.append(Spacer(1, 0.08 * inch))
             elements.append(Paragraph(f"<b>{title}</b>", styles['Rpt2']))
 
+        import re as _re
+
         def body_para(text: str):
-            if text and str(text).strip() and str(text).strip() not in ('N/A', 'None', '{}'):
-                elements.append(Paragraph(_s(text), styles['RptBody']))
+            """Render a text block as paragraph(s). Detects numbered/bulleted lists and renders
+            each item as a separate bullet paragraph instead of one long run."""
+            if not text or not str(text).strip() or str(text).strip() in ('N/A', 'None', '{}'):
+                return
+            raw = str(text).strip()
+            lines = raw.split('\n')
+            list_pat = _re.compile(r'^\s*(\d+[.)]\s+|[•\-\*]\s+)')
+            list_lines = [l for l in lines if list_pat.match(l)]
+            if len(list_lines) >= 2:
+                current_para_lines = []
+                for line in lines:
+                    line_s = line.strip()
+                    if not line_s:
+                        if current_para_lines:
+                            elements.append(Paragraph(_s(' '.join(current_para_lines)), styles['RptBody']))
+                            current_para_lines = []
+                    elif list_pat.match(line_s):
+                        if current_para_lines:
+                            elements.append(Paragraph(_s(' '.join(current_para_lines)), styles['RptBody']))
+                            current_para_lines = []
+                        clean = list_pat.sub('', line_s).strip()
+                        elements.append(Paragraph(f"\u2022 {_s(clean)}", styles['RptBullet']))
+                    else:
+                        current_para_lines.append(line_s)
+                if current_para_lines:
+                    elements.append(Paragraph(_s(' '.join(current_para_lines)), styles['RptBody']))
+            else:
+                elements.append(Paragraph(_s(raw), styles['RptBody']))
 
         def kv_table(rows_data: list, col_widths=None):
             """Render a two-column key-value table."""
@@ -1297,11 +1417,19 @@ class EnhancedExportService:
         ])
 
         # Locations detail table
+        # Locations detail table — filtered to customer's primary country
         locs = profile_data.get('locations', [])
         if locs:
             sub_heading("1.3 Plant Locations")
+            filter_country = (customer_data or {}).get('crm_country', '')
+            if filter_country:
+                filtered_locs = [loc for loc in locs if str(loc.get('country', '')).strip().lower() == filter_country.lower()]
+                # Fallback: if no match, show all (cross-border HQ or data gap)
+                filtered_locs = filtered_locs if filtered_locs else locs[:20]
+            else:
+                filtered_locs = locs[:20]
             loc_rows = []
-            for loc in locs[:20]:
+            for loc in filtered_locs:
                 loc_rows.append([
                     _s(loc.get('city', '')),
                     _s(loc.get('country', '')),
@@ -1376,8 +1504,14 @@ class EnhancedExportService:
                 sub_heading("Year-by-Year Summary")
                 rows = []
                 for _, r in yearly_df.iterrows():
+                    # Force year to integer string (avoid "2024.0")
+                    raw_year = r.get('Year', '')
+                    try:
+                        year_str = str(int(float(raw_year))) if raw_year != '' and raw_year is not None else ''
+                    except (ValueError, TypeError):
+                        year_str = str(raw_year)
                     rows.append([
-                        str(r.get('Year', '')),
+                        year_str,
                         str(int(r.get('Projects', 0) or 0)),
                         f"EUR {float(r.get('Total Value (EUR)', 0) or 0):,.0f}",
                         f"EUR {float(r.get('Won Value (EUR)', 0) or 0):,.0f}",
@@ -1414,7 +1548,7 @@ class EnhancedExportService:
         kv_table([
             ["Total Projects",   str(len(proj_dd))],
             ["Active Projects",  str(active_p)],
-            ["Total Equipment",  str(len(inst_dd))],
+            ["Total Equipment (CRM Export)",  str(len(inst_dd))],
             ["Total CRM Revenue",f"EUR {total_rev:,.0f}"],
         ])
         if inst_dd:
@@ -1471,7 +1605,7 @@ class EnhancedExportService:
         section_heading("8", "Installed Base Summary")
         if ib_data and ib_data.get('n_units', 0) > 0:
             kv_table([
-                ["Equipment Units",      str(ib_data.get('n_units', 0))],
+                ["Equipment Units (IB List)",      str(ib_data.get('n_units', 0))],
                 ["Average Age (years)",  str(ib_data.get('avg_age', 'N/A'))],
                 ["Equipment Types",      ', '.join(str(t) for t in ib_data.get('equipment_types', [])) or 'N/A'],
                 ["Countries / Regions",  ', '.join(str(c) for c in ib_data.get('countries', [])) or 'N/A'],
@@ -1596,6 +1730,8 @@ class EnhancedExportService:
                 for key, value in payload.items():
                     if not value:
                         continue
+                    if str(key).lower() in ('references', 'sources', 'citations'):
+                        continue
                     sub_heading(str(key).replace('_', ' ').title())
                     if isinstance(value, dict):
                         for k2, v2 in value.items():
@@ -1618,9 +1754,17 @@ class EnhancedExportService:
                 date_txt  = _s(n.get('published_date', ''))
                 src_txt   = _s(n.get('source', ''))
                 elements.append(Paragraph(f"<b>{title_txt}</b>  ({date_txt}{' | ' + src_txt if src_txt else ''})", styles['RptBullet']))
-                desc = n.get('description', '')
-                if desc:
-                    elements.append(Paragraph(_s(desc), ParagraphStyle(
+
+                # 3-4 line summary per news item (roughly up to four sentences)
+                desc_raw = str(n.get('description') or n.get('summary') or '').strip()
+                if desc_raw:
+                    sentences = [s.strip() for s in desc_raw.replace('\n', ' ').split('. ') if s.strip()]
+                    summary = '. '.join(sentences[:4])
+                    if summary and not summary.endswith('.'):
+                        summary += '.'
+                    if len(summary) > 650:
+                        summary = summary[:647] + '...'
+                    elements.append(Paragraph(_s(summary), ParagraphStyle(
                         name='NewsBody', parent=styles['RptBody'],
                         leftIndent=22, fontSize=9, spaceAfter=6
                     )))
@@ -1637,7 +1781,17 @@ class EnhancedExportService:
             body_para("No specific external references cited.")
 
         # ── BUILD ─────────────────────────────────────────────────────────────
-        doc.build(elements)
+        def _pdf_footer(canvas, doc):  # noqa: E306
+            canvas.saveState()
+            canvas.setFont('Helvetica', 8)
+            canvas.setFillColor(colors.HexColor('#9ca3af'))
+            page_w = canvas._pagesize[0]
+            page_num = canvas.getPageNumber()
+            text = f"Customer Analysis Report  |  CONFIDENTIAL  |  Page {page_num}  |  Generated {datetime.now().strftime('%Y-%m-%d')}"
+            canvas.drawCentredString(page_w / 2.0, 0.28 * inch, text)
+            canvas.restoreState()
+
+        doc.build(elements, onFirstPage=_pdf_footer, onLaterPages=_pdf_footer)
         buffer.seek(0)
         return buffer
 

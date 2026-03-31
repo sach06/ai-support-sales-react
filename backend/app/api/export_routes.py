@@ -92,6 +92,7 @@ def export_docx(payload: Dict[str, Any] = Body(...)):
         charts = _generate_export_charts(customer_name, details)
         crm_history = get_yearly_performance(customer_name)
         ib_summary = get_ib_summary(customer_name)
+        crm_country = str(details.get('crm', {}).get('country', '') or details.get('crm', {}).get('account_country', '') or '').strip()
         
         # Inject news dynamically if it was missing from the AI profile output
         if 'recent_news' not in profile:
@@ -102,7 +103,7 @@ def export_docx(payload: Dict[str, Any] = Body(...)):
         buffer = enhanced_export_service.generate_comprehensive_docx(
             customer_name=customer_name,
             profile_data=profile,
-            customer_data={'projects': details.get('crm', {}).get('projects', []), 'installed_base': details.get('installed_base', [])},
+            customer_data={'projects': details.get('crm', {}).get('projects', []), 'installed_base': details.get('installed_base', []), 'crm_country': crm_country},
             charts=charts,
             crm_history=crm_history,
             ib_data=ib_summary
@@ -134,6 +135,7 @@ def export_pdf(payload: Dict[str, Any] = Body(...)):
         charts = _generate_export_charts(customer_name, details)
         crm_history = get_yearly_performance(customer_name)
         ib_summary = get_ib_summary(customer_name)
+        crm_country = str(details.get('crm', {}).get('country', '') or details.get('crm', {}).get('account_country', '') or '').strip()
         
         # Inject news dynamically if it was missing from the AI profile output
         if 'recent_news' not in profile:
@@ -144,7 +146,7 @@ def export_pdf(payload: Dict[str, Any] = Body(...)):
         docx_buffer = enhanced_export_service.generate_comprehensive_docx(
             customer_name=customer_name,
             profile_data=profile,
-            customer_data={'projects': details.get('crm', {}).get('projects', []), 'installed_base': details.get('installed_base', [])},
+            customer_data={'projects': details.get('crm', {}).get('projects', []), 'installed_base': details.get('installed_base', []), 'crm_country': crm_country},
             charts=charts,
             crm_history=crm_history,
             ib_data=ib_summary

@@ -257,7 +257,8 @@ class ProfileGeneratorService:
 
         system_prompt = (
             "You are a senior strategy consultant and steel-industry specialist preparing a consulting-grade "
-            "deep-dive for SMS group. Use only evidence from provided context; if missing, mark as Working hypothesis. "
+            "deep-dive for SMS group. Use evidence from the provided context; for any gaps, apply your expert "
+            "steel-industry knowledge and provide specific, substantive estimates — never say 'not available'. "
             "Always return valid JSON only."
         )
 
@@ -273,7 +274,7 @@ Draft approximately 600-850 words and return JSON with keys:
 - references (array of strings)
 
 IMPORTANT: All values must be strings or arrays of strings. No nested objects except basic_data which contains only string-valued fields.
-Chain of Density rule: prioritize specific facts; if detail is insufficient, add explicit "Working hypothesis:" statements.
+Chain of Density rule: prioritize specific facts; if detail is insufficient, provide substantive expert estimates grounded in steel industry benchmarks — never use placeholder phrases like 'not available' or 'working hypothesis'.
 
 {resource_guidance}
 
@@ -284,15 +285,20 @@ CONTEXT:
         module_b_prompt = f"""
 Module B: Operational Footprint & Technical Installed Base.
 
-Draft approximately 800-1100 words and return JSON with keys:
+Draft approximately 1000-1400 words and return JSON with keys:
 - operational_summary (string)
 - location_audit (array of objects with: address, city, country, logistics_context, plant_type, equipment_detail, oem, automation_spec, rated_tpy, actual_tpy, final_products)
 - equipment_detail_summary (string)
 - latest_projects (string)
 - realized_projects (string)
-- metallurgical_findings (object with: process_efficiency, carbon_footprint_strategy, modernization_potential, technical_bottlenecks)
+- metallurgical_findings (object with string fields:
+    process_efficiency: Write 200-300 words on: specific process efficiency assessment based on equipment age and type; estimated yield rates (% HRC/CR yield); energy intensity (kWh/t for meltshop/casting/rolling individually if data available); heat-to-heat interval if EAF/BOF present; primary process variability drivers (temperature control, cobble rate, scrap management). Reference specific equipment types found in the installed base and name the bottleneck constraints.
+    carbon_footprint_strategy: Write 150-200 words on: current CO2 production route (BF-BOF, EAF, or mixed route); estimated CO2 footprint per tonne of steel vs European benchmark; green steel transition stage and publicly stated target year if any; H2 readiness and DRI feasibility; scrap availability and electricity grid mix; how SMS decarbonization portfolio (EAF, H2-ready burners, energy-tracking X-Pact modules) maps to their transition path.
+    modernization_potential: Write 200-300 words: rank each equipment family by modernization urgency using a three-tier framework — Critical (>20 years, high failure risk), Priority (10-20 years, efficiency gap), Recent (<10 years, digital gap only). For Critical and Priority tiers, name the specific SMS technology modules that apply (X-Pact Level 2 automation, EAF package, Flexible Slab Caster, Innex high cooling, Cold Rolling Mill revamp, Downstream Finishing Line). Estimate capex scale (small <€20M, medium €20-100M, large >€100M) for each tier.
+    technical_bottlenecks: Identify exactly 4-5 specific technical constraints present in this fleet: automation layer age and HMI generation; refractory wear management capability; cooling water system age and risk; sensor coverage and data historian gaps; roll shop or workshop limitations. For each bottleneck, name the targeted SMS X-Pact digitalization entry point or service module that addresses it.)
 - references (array of strings)
 
+CRITICAL for location_audit: Use ONLY real city names derived from the installed base data or company knowledge. Never write 'Not available', 'N/A', or 'Unknown' in the city field — use the nearest major city or plant region name instead.
 Include location-by-location and OEM-level detail.
 
 {resource_guidance}
@@ -823,7 +829,7 @@ CONTEXT:
 BUSINESS CONTEXT:
 {context}
 
-Using your deep steel-industry expertise, generate a comprehensive customer intelligence profile. Where specific data is limited, provide substantive working hypotheses grounded in steel industry benchmarks and label them "Working hypothesis:". Every text field must be written at McKinsey/BCG analytical depth.
+Using your deep steel-industry expertise, generate a comprehensive customer intelligence profile. Where specific data is limited, provide substantive analysis grounded in steel industry benchmarks and expert knowledge — never label content as 'working hypothesis', just state your expert assessment directly. Every text field must be written at McKinsey/BCG analytical depth.
 
 Return a single valid JSON object — no markdown, no fences, no commentary:
 {{
@@ -858,7 +864,7 @@ Return a single valid JSON object — no markdown, no fences, no commentary:
     "engagement_recommendation": "WRITE MINIMUM 3 SUBSTANTIVE PARAGRAPHS: (1) Recommended entry strategy, priority sites, and technical champions. (2) Specific SMS solutions to introduce in the first customer interaction. (3) Risks, competitive response, and mitigation approach."
   }},
   "history": {{
-    "latest_projects": "PROJECT TRACK RECORD: Any known SMS-supplied projects, what process technology was supplied, approximate value bands, and current status. If data unavailable, state explicitly and provide working hypothesis on relationship maturity.",
+    "latest_projects": "PROJECT TRACK RECORD: Any known SMS-supplied projects, what process technology was supplied, approximate value bands, and current status. If no project data is available, assess relationship maturity based on installed-base footprint and country context.",
     "total_won_value_eur": "EUR amount from CRM or estimate",
     "win_rate_pct": "win rate from CRM or industry benchmark estimate",
     "sms_relationship": "SMS account owner or responsible team",
@@ -904,7 +910,7 @@ Return a single valid JSON object — no markdown, no fences, no commentary:
 CRITICAL RULES:
 - Every field tagged WRITE MINIMUM N PARAGRAPHS must meet that minimum.
 - Use \\n\\n between paragraphs in long strings.
-- Replace empty phrases ('analysis pending', 'not available', 'strong market position') with steel-industry working hypotheses.
+- Replace empty phrases ('analysis pending', 'not available', 'strong market position') with specific, evidence-backed steel-industry assessments.
 - SMS group sells: EAF/BOF equipment, continuous casting, hot/cold rolling mills, downstream finishing, X-Pact automation, environmental systems, and service.
 - Competitors: Danieli (Italy), Primetals Technologies (Austria/Japan), Fives (France), SMS's own legacy installed base."""
 
@@ -930,7 +936,7 @@ METHODOLOGY & CONSTRAINTS:
     - Every major section must connect factual evidence to business implications for SMS group.
     - Use steel-industry-specific language where relevant: BF/BOF, EAF, caster, rolling mill, downstream finishing, strip quality, yield, refractory wear, decarbonization, energy intensity, maintenance shutdowns, installed-base modernization.
     - Explain what the evidence means commercially: capex readiness, modernization urgency, OEM lock-in, operational bottlenecks, service potential, digitalization potential, and decarbonization fit.
-    - Where evidence is thin, write "Working hypothesis:" followed by the assumption and what data would validate it.
+    - Where evidence is thin, provide your best expert estimate grounded in steel-industry benchmarks; do not flag it as a hypothesis, just write the assessment.
     - References must be concrete, traceable, and preferably include source name plus URL. Distinguish public sources from internal SMS knowledge where applicable.
 
 DATA SOURCES:
@@ -1157,20 +1163,43 @@ CRITICAL INSTRUCTIONS:
             except Exception:
                 pass
         
+        _na_vals = {'not available', 'n/a', 'na', 'unknown', 'none', '', 'null'}
+
+        def _site_city(item: Dict, idx: int) -> str:
+            """Return the best available city/site label; never 'Not available'."""
+            for key in ('city_internal', 'city', 'location', 'plant_name'):
+                raw = str(item.get(key, '') or '').strip()
+                if raw and raw.lower() not in _na_vals:
+                    return raw
+            country = str(item.get('country_internal', item.get('country', '')) or '').strip()
+            return f"Plant site {idx + 1}" + (f" ({country})" if country and country.lower() not in _na_vals else "")
+
+        def _site_val(item: Dict, *keys, fallback: str = '') -> str:
+            for key in keys:
+                raw = str(item.get(key, '') or '').strip()
+                if raw and raw.lower() not in _na_vals:
+                    return raw
+            return fallback
+
         if installed:
-            for item in installed[:8]:
+            for idx, item in enumerate(installed[:8]):
+                city = _site_city(item, idx)
+                country = _site_val(item, 'country_internal', 'country', fallback='')
+                products = _site_val(item, 'products', 'final_products', fallback='')
+                cap_raw = _site_val(item, 'capacity', 'capacity_internal', 'rated_tpy', fallback='')
+                cap = cap_raw if cap_raw else ''
                 profile['locations'].append({
-                    "address": item.get('location', 'Not available'),
-                    "city": item.get('city_internal', item.get('city', 'Not available')),
-                    "country": item.get('country_internal', item.get('country', 'Not available')),
+                    "address": _site_val(item, 'location', 'address', fallback=''),
+                    "city": city,
+                    "country": country,
                     "installed_base": [{
-                        "equipment_type": item.get('equipment', item.get('equipment_type', 'Not available')),
-                        "manufacturer": item.get('oem', item.get('manufacturer', 'N/A')),
-                        "year_of_startup": item.get('start_year', item.get('year', 'N/A')),
-                        "status": item.get('status', 'Active')
+                        "equipment_type": _site_val(item, 'equipment', 'equipment_type', fallback='Equipment'),
+                        "manufacturer": _site_val(item, 'oem', 'manufacturer', fallback=''),
+                        "year_of_startup": _site_val(item, 'start_year', 'start_year_internal', 'year', fallback=''),
+                        "status": _site_val(item, 'status', 'status_internal', fallback='Active')
                     }],
-                    "final_products": item.get('products', 'Not available'),
-                    "tons_per_year": str(item.get('capacity', 'Not available'))
+                    "final_products": products,
+                    "tons_per_year": cap
                 })
 
         kb_signals = extra.get('internal_knowledge_signals', {}) if isinstance(extra.get('internal_knowledge_signals', {}), dict) else {}
@@ -1184,10 +1213,10 @@ CRITICAL INSTRUCTIONS:
             "priority_score": str(min(95, 40 + len(installed) * 1.2 + float(kb_docs) * 4)),
             "priority_rank": "Data-driven fallback estimate",
             "company_explainer": (
-                "Working hypothesis: opportunity attractiveness is primarily driven by installed-base breadth, asset aging, and internal evidence density.\n\n"
-                f"Installed-base records available: {len(installed)}. Countries represented: {', '.join(sorted(countries)) if countries else 'Unknown'}. "
-                f"Internal-knowledge hits: {kb_docs}, best match score: {kb_best}.\n\n"
-                "Commercial implication for SMS: prioritize plants with older critical equipment and high service/modernization evidence first, then sequence digital and decarbonization topics."
+                f"Opportunity attractiveness is driven by installed-base breadth ({len(installed)} records), asset aging, and internal evidence density.\n\n"
+                f"Countries represented in installed base: {', '.join(sorted(countries)) if countries else 'Unknown'}. "
+                f"Internal-knowledge document hits: {kb_docs}, best match score: {kb_best}.\n\n"
+                "SMS commercial priority: focus on plants with older critical equipment and strongest service/modernization signals first, then sequence digital and decarbonization topics."
             ),
             "key_opportunity_drivers": (
                 "1) Installed-base continuity and OEM footprint enable targeted modernization pathways.\n\n"
@@ -1211,11 +1240,11 @@ CRITICAL INSTRUCTIONS:
 
         profile['market_intelligence'] = {
             "financial_health": (
-                "Financial conclusions are generated from available CRM/financial feeds and should be validated with latest annual filings.\n\n"
-                "Working hypothesis: if modernization projects are phased and KPI-backed (yield, energy, uptime), investment approval probability improves versus one-shot capex asks.\n\n"
-                f"Manager briefing integration: {briefing_excerpt}"
+                "Financial conclusions are based on available CRM and financial feeds; validate with latest annual filings for confirmed figures.\n\n"
+                "Investment approval probability improves significantly when modernization projects are phased and KPI-backed (yield improvement, energy reduction, uptime gain), rather than presented as one-shot capital asks.\n\n"
+                f"Manager briefing context: {briefing_excerpt}"
             ),
-            "market_position": "Positioning assessment should combine product mix, regional demand drivers, and competitor footprint in each major site geography.",
+            "market_position": "Market positioning assessment should integrate product mix, regional demand drivers, and competitor footprint at each major site.",
         }
 
         ci = extra.get('country_intelligence', {}) if isinstance(extra.get('country_intelligence', {}), dict) else {}

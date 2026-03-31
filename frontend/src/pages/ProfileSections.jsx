@@ -112,18 +112,47 @@ const ProfileSections = ({ profile }) => {
                                 }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
                                         <div>
-                                            <h5 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--primary)', fontWeight: '700' }}>{site.city || 'Unknown Location'}</h5>
-                                            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: '500' }}>{site.country || 'Unknown Country'}</span>
+                                            {(() => {
+                                                const NA_VALS = ['not available', 'n/a', 'na', 'unknown', 'none', ''];
+                                                const rawCity = String(site.city || '').trim();
+                                                const rawCountry = String(site.country || '').trim();
+                                                const cityIsBlank = NA_VALS.includes(rawCity.toLowerCase());
+                                                // Best city label: city → plant_type (from address or location) → "Plant site, Country"
+                                                const cityLabel = cityIsBlank
+                                                    ? (site.plant_type && !NA_VALS.includes(String(site.plant_type).toLowerCase())
+                                                        ? site.plant_type
+                                                        : rawCountry
+                                                            ? `Plant site — ${rawCountry}`
+                                                            : 'Plant site')
+                                                    : rawCity;
+                                                const countryLabel = NA_VALS.includes(rawCountry.toLowerCase()) ? '' : rawCountry;
+                                                return (
+                                                    <>
+                                                        <h5 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--primary)', fontWeight: '700' }}>{cityLabel}</h5>
+                                                        {countryLabel && <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: '500' }}>{countryLabel}</span>}
+                                                    </>
+                                                );
+                                            })()}
                                         </div>
                                         <div style={{ textAlign: 'right' }}>
-                                            <div style={{ fontWeight: '700', color: 'var(--primary)', fontSize: '1rem' }}>{site.tons_per_year ? `${site.tons_per_year} t/y` : 'N/A capacity'}</div>
-                                            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Capacity</div>
+                                            {(() => {
+                                                const capRaw = String(site.tons_per_year || '').trim();
+                                                const NA_VALS = ['not available', 'n/a', 'na', 'none', '', 'null'];
+                                                const capLabel = NA_VALS.includes(capRaw.toLowerCase()) ? null : capRaw;
+                                                return capLabel
+                                                    ? <><div style={{ fontWeight: '700', color: 'var(--primary)', fontSize: '1rem' }}>{capLabel} t/y</div><div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Capacity</div></>
+                                                    : <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Capacity unknown</div>;
+                                            })()}
                                         </div>
                                     </div>
 
                                     <div style={{ marginBottom: '1rem', background: 'var(--bg-secondary)', padding: '0.75rem', borderRadius: '8px' }}>
                                         <div style={{ fontSize: '0.7rem', fontWeight: '800', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '0.4rem', letterSpacing: '0.5px' }}>Main Products</div>
-                                        <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: '500' }}>{site.final_products || 'General Steel Products'}</div>
+                                        {(() => {
+                                            const NA_VALS = ['not available', 'n/a', 'na', 'none', '', 'null'];
+                                            const prod = String(site.final_products || '').trim();
+                                            return <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: '500' }}>{NA_VALS.includes(prod.toLowerCase()) ? 'General Steel Products' : prod}</div>;
+                                        })()}
                                     </div>
 
                                     {asArray(site.installed_base).length > 0 && (
