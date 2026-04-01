@@ -151,20 +151,30 @@ const CustomerDetailPage = () => {
     }
 
     const hasProfile = profileData !== null;
+    const customerScope = rawCustomerData?.customer_scope || {};
+    const displayTitle = customerScope?.display_name || rawCustomerData?.customer_name || companyName;
+    const crmCountry = rawCustomerData?.crm_data?.Country || rawCustomerData?.crm_data?.country || 'Unknown';
+    const crmIndustry = rawCustomerData?.crm_data?.Industry || rawCustomerData?.crm_data?.industry || 'Unknown';
+    const memberCount = Number(rawCustomerData?.crm_data?.member_count || 0);
 
     return (
         <div className="customer-container">
             {/* Header Area */}
             <div className="customer-header-card">
                 <div className="header-info">
-                    <h2 className="customer-title">{rawCustomerData.customer_name}</h2>
+                    <h2 className="customer-title">{displayTitle}</h2>
                     <div className="customer-meta-tags">
                         <span className="meta-tag">
-                            <span className="icon">📍</span> {rawCustomerData.crm_data.Country || 'Unknown'}
+                            <span className="icon">📍</span> {crmCountry}
                         </span>
                         <span className="meta-tag">
-                            <span className="icon">🏢</span> {rawCustomerData.crm_data.Industry || 'Unknown'}
+                            <span className="icon">🏢</span> {crmIndustry}
                         </span>
+                        {customerScope?.selection_type === 'group' && (
+                            <span className="meta-tag">
+                                <span className="icon">🧩</span> Group scope: {memberCount > 0 ? `${memberCount} branches` : 'multiple branches'}
+                            </span>
+                        )}
                     </div>
                 </div>
 

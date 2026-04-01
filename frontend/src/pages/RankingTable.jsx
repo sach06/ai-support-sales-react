@@ -26,7 +26,7 @@ const formatEvidenceStrength = (score) => {
     return 'No match yet';
 };
 
-const RankingTable = ({ data, onRowSelect, selectedId, pinnedCompany }) => {
+const RankingTable = ({ data, onRowSelect, selectedId, pinnedCompany, pinnedGroupKey = null }) => {
     // Normalise pinned company for resilient matching across legal suffix variants.
     const pinnedNorm = pinnedCompany && pinnedCompany !== 'All'
         ? normalizeCompanyName(pinnedCompany)
@@ -39,7 +39,9 @@ const RankingTable = ({ data, onRowSelect, selectedId, pinnedCompany }) => {
             id: 'rank',
             cell: info => {
                 const row = info.row.original;
-                const isPinned = pinnedNorm && row.company && isCompanyMatch(row.company, pinnedNorm);
+                const isPinned = pinnedGroupKey
+                    ? String(row.company_group_key || '') === String(pinnedGroupKey)
+                    : (pinnedNorm && row.company && isCompanyMatch(row.company, pinnedNorm));
                 return (
                     <div style={{ fontWeight: 'bold', width: '74px' }} title={row.original_rank ? `Model rank: ${row.original_rank}` : undefined}>
                         {info.getValue()}
@@ -68,7 +70,10 @@ const RankingTable = ({ data, onRowSelect, selectedId, pinnedCompany }) => {
             accessorKey: 'company',
             cell: info => {
                 const name = info.getValue();
-                const isPinned = pinnedNorm && name && isCompanyMatch(name, pinnedNorm);
+                const row = info.row.original;
+                const isPinned = pinnedGroupKey
+                    ? String(row.company_group_key || '') === String(pinnedGroupKey)
+                    : (pinnedNorm && name && isCompanyMatch(name, pinnedNorm));
                 return (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600' }}>
                         {isPinned && (
@@ -152,7 +157,9 @@ const RankingTable = ({ data, onRowSelect, selectedId, pinnedCompany }) => {
         <div className="ranking-table-container">
             {pinnedNorm && (
                 <div className="pinned-company-notice">
-                    ⭐ Showing <strong>{pinnedCompany}</strong> first. Original model rank is shown in brackets.
+                    ⭐ {pinnedGroupKey
+                        ? <>Showing all branches under <strong>{pinnedCompany}</strong> first. Original model ranks are shown in brackets.</>
+                        : <>Showing <strong>{pinnedCompany}</strong> first. Original model rank is shown in brackets.</>}
                 </div>
             )}
             <div className="table-scroll-wrapper">
@@ -176,8 +183,9 @@ const RankingTable = ({ data, onRowSelect, selectedId, pinnedCompany }) => {
                     <tbody>
                         {table.getRowModel().rows.map(row => {
                             const isSelected = selectedId === row.original.company;
-                            const isPinned = pinnedNorm && row.original.company &&
-                                isCompanyMatch(row.original.company, pinnedNorm);
+                            const isPinned = pinnedGroupKey
+                                ? String(row.original.company_group_key || '') === String(pinnedGroupKey)
+                                : (pinnedNorm && row.original.company && isCompanyMatch(row.original.company, pinnedNorm));
                             return (
                                 <tr
                                     key={row.id}

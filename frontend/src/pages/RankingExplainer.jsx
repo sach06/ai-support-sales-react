@@ -14,8 +14,117 @@ const fetchCompanyNews = async (company, equipmentType, country) => {
     return response.data?.news || [];
 };
 
-const RankingExplainer = ({ rowData }) => {
-    if (!rowData) return <div className="explainer-empty">Select a company from the ranking table to see details.</div>;
+const RankingDiagnostic = ({ error, filterContext = {} }) => {
+    const { country, equipmentType, companyName } = filterContext;
+    const detail = error?.response?.data?.detail || error?.message || null;
+
+    // Parse the HTTP status to decide severity
+    const status = error?.response?.status;
+    const isServerError = !status || status >= 500;
+
+    // Derive human-readable filter description
+    const filterParts = [];
+    if (companyName && companyName !== 'All') filterParts.push(`company "${companyName.replace('group::', '')}"`);
+    if (equipmentType && equipmentType !== 'All') filterParts.push(`equipment "${equipmentType}"`);
+    if (country && country !== 'All') filterParts.push(`country "${country}"`);
+    const filterDesc = filterParts.length > 0
+        ? filterParts.join(', ')
+        : 'the current filter combination';
+
+    const likelyCauses = [];
+    if (companyName && companyName !== 'All') {
+        likelyCauses.push('This company has no matching records in the BCG Installed Base dataset, and the CRM entry alone does not contain enough equipment data for the ML scoring model to produce a result.');
+    }
+    if (equipmentType && equipmentType !== 'All') {
+        likelyCauses.push(`No "${equipmentType}" equipment entries exist for the selected filters. Try removing the Equipment Type filter to see all equipment types for this account.`);
+    }
+    if (country && country !== 'All') {
+        likelyCauses.push(`No records were found for "${country}" in combination with the other active filters. Try broadening the country or region selection.`);
+    }
+    if (likelyCauses.length === 0) {
+        likelyCauses.push('The ranking model requires at least one BCG Installed Base record (equipment type, start year, country) to generate a score. No such record could be found for the current selection.');
+    }
+    if (isServerError) {
+        likelyCauses.push('A server-side error was returned. This can happen if the model feature matrix is empty for this filter combination.');
+    }
+
+    const suggestions = [
+        'Clear the Company Name filter and browse the full ranked list.',
+        "Use the Equipment Type and Country dropdowns to narrow results after identifying the account's footprint.",
+        'Check the Overview page — if no plants appear there either, this company exists only in CRM without installed-base data.',
+        'Run "Rematch Poor Entries" in the sidebar to attempt re-linking CRM and BCG records.',
+    ];
+
+    return (
+        <div className="ranking-explainer" style={{ paddingTop: '0.5rem' }}>
+            <div className="explainer-header" style={{ borderLeft: '4px solid var(--warning, #e6a817)', paddingLeft: '0.75rem' }}>
+                <h3 className="company-name" style={{ fontSize: '1rem', color: 'var(--warning, #e6a817)' }}>
+                    Ranking unavailable
+                </h3>
+                <div className="company-meta">
+                    Could not produce a ranked list for {filterDesc}.
+                </div>
+            </div>
+
+            <div className="explainer-body">
+                <h4>Why did this happen?</h4>
+                <ul className="feature-list">
+                    {likelyCauses.map((cause, i) => (
+                        <li key={i}>
+                            <div style={{ fontSize: '0.86rem', color: 'var(--text-primary)', lineHeight: '1.45' }}>{cause}</div>
+                        </li>
+                    ))}
+                </ul>
+
+                {detail && (
+                    <>
+                        <h4 style={{ marginTop: '1rem' }}>Technical detail from server</h4>
+                        <div style={{
+                            background: 'rgba(220,53,53,0.07)',
+                            border: '1px solid rgba(220,53,53,0.2)',
+                            borderRadius: '6px',
+                            padding: '0.6rem 0.75rem',
+                            fontSize: '0.8rem',
+                            color: 'var(--text-secondary)',
+                            fontFamily: 'monospace',
+                            wordBreak: 'break-word',
+                        }}>
+                            {detail}
+                        </div>
+                    </>
+                )}
+
+                <h4 style={{ marginTop: '1.2rem' }}>What you can do</h4>
+                <ul className="feature-list">
+                    {suggestions.map((s, i) => (
+                        <li key={i}>
+                            <div style={{ fontSize: '0.86rem', color: 'var(--text-primary)', lineHeight: '1.45' }}>{s}</div>
+                        </li>
+                    ))}
+                </ul>
+
+                <h4 style={{ marginTop: '1.2rem' }}>What data is needed to score this account</h4>
+                <div style={{ display: 'grid', gap: '0.45rem' }}>
+                    {[
+                        ['Equipment type', 'Must appear in the BCG Installed Base sheet (e.g. Hot Strip Mill)'],
+                        ['Start year / age', 'Used to compute equipment age — the single strongest ranking signal'],
+                        ['Country', 'Required for country-level market feature enrichment'],
+                        ['CRM rating (optional)', 'Boosts or dampens the score; defaults to neutral if missing'],
+                        ['FTE / company size (optional)', 'Proxy for investment capacity; defaults to zero if not in CRM'],
+                    ].map(([label, desc]) => (
+                        <div key={label} style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '0.5rem', alignItems: 'baseline' }}>
+                            <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>{label}</span>
+                            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{desc}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const RankingExplainer = ({ rowData, rankingError, filterContext }) => {
+    const activeRow = rowData || {};
 
     const DEFAULT_TOP_DRIVERS = [
         { name: 'equipment_age', impact: 1.0 },
@@ -76,8 +185,9 @@ const RankingExplainer = ({ rowData }) => {
     };
 
     const { data: newsItems = [] } = useQuery({
-        queryKey: ['ranking_company_news', rowData.company, rowData.equipment_type, rowData.country],
-        queryFn: () => fetchCompanyNews(rowData.company, rowData.equipment_type, rowData.country),
+        queryKey: ['ranking_company_news', activeRow.company, activeRow.equipment_type, activeRow.country],
+        queryFn: () => fetchCompanyNews(activeRow.company, activeRow.equipment_type, activeRow.country),
+        enabled: Boolean(activeRow.company),
         staleTime: 300000,
     });
 
@@ -85,15 +195,15 @@ const RankingExplainer = ({ rowData }) => {
     // or a string list for heuristics.
     let parsedFeatures = [];
     try {
-        if (typeof rowData.top_features === 'string' && rowData.top_features.startsWith('{')) {
-            const featureDict = JSON.parse(rowData.top_features);
+        if (typeof activeRow.top_features === 'string' && activeRow.top_features.startsWith('{')) {
+            const featureDict = JSON.parse(activeRow.top_features);
             parsedFeatures = Object.entries(featureDict)
                 .map(([name, val]) => ({ name, impact: val }))
                 .sort((a, b) => b.impact - a.impact)
                 .slice(0, 5); // top 5
-        } else if (typeof rowData.top_features === 'string') {
+        } else if (typeof activeRow.top_features === 'string') {
             // Heuristic comma-separated
-            parsedFeatures = rowData.top_features.split(',').map(f => ({ name: f.trim(), impact: 0 }));
+            parsedFeatures = activeRow.top_features.split(',').map(f => ({ name: f.trim(), impact: 0 }));
         }
     } catch (e) {
         console.error("Failed to parse features", e);
@@ -105,12 +215,12 @@ const RankingExplainer = ({ rowData }) => {
 
     const actionInsights = useMemo(() => {
         const insights = [];
-        const age = Number(rowData.equipment_age || 0);
-        const serviceSignal = Number(rowData.knowledge_service_signal || 0);
-        const modernizationSignal = Number(rowData.knowledge_modernization_signal || 0);
-        const decarbSignal = Number(rowData.knowledge_decarbonization_signal || 0);
-        const digitalSignal = Number(rowData.knowledge_digital_signal || 0);
-        const projectSignal = Number(rowData.knowledge_project_signal || 0);
+        const age = Number(activeRow.equipment_age || 0);
+        const serviceSignal = Number(activeRow.knowledge_service_signal || 0);
+        const modernizationSignal = Number(activeRow.knowledge_modernization_signal || 0);
+        const decarbSignal = Number(activeRow.knowledge_decarbonization_signal || 0);
+        const digitalSignal = Number(activeRow.knowledge_digital_signal || 0);
+        const projectSignal = Number(activeRow.knowledge_project_signal || 0);
 
         if (age >= 18) {
             insights.push(`Aging equipment profile (${age.toFixed(1)} years) supports a modernization-led pitch with staged capex and uptime guarantees.`);
@@ -140,7 +250,7 @@ const RankingExplainer = ({ rowData }) => {
         }
 
         return insights.slice(0, 5);
-    }, [newsItems, rowData]);
+    }, [newsItems, activeRow]);
 
     // Helper to format feature names for readability
     const formatFeatureName = (name) => {
@@ -166,6 +276,13 @@ const RankingExplainer = ({ rowData }) => {
         { key: 'knowledge_project_signal', label: 'Project' },
         { key: 'knowledge_quality_signal', label: 'Quality' },
     ];
+
+    if (!rowData && rankingError) {
+        return <RankingDiagnostic error={rankingError} filterContext={filterContext} />;
+    }
+    if (!rowData) {
+        return <div className="explainer-empty">Select a company from the ranking table to see details.</div>;
+    }
 
     return (
         <div className="ranking-explainer">

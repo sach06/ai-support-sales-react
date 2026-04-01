@@ -25,6 +25,8 @@ const isCompanyMatch = (candidate, target) => {
     return a === b || a.startsWith(b) || b.startsWith(a) || a.includes(b) || b.includes(a);
 };
 
+const GROUP_PREFIX = 'group::';
+
 const RankingPage = () => {
     const { country, equipmentType, companyName } = useFilterStore();
     const { dataLoaded } = useDataStore();
@@ -79,7 +81,7 @@ const RankingPage = () => {
     });
 
     // Main Ranking List Query based on sidebar filters via API
-    const { data: rankings, isLoading, isError, refetch: refetchRankings } = useQuery({
+    const { data: rankings, isLoading, isError, error: rankingError, refetch: refetchRankings } = useQuery({
         queryKey: ['ranked_list', { equipmentType, country, companyName, forceHeuristic }],
         queryFn: () => getRankedList({
             equipmentType,
@@ -93,6 +95,9 @@ const RankingPage = () => {
     });
 
     const isModelAvailable = statusData?.available || false;
+    const selectedGroupKey = companyName?.startsWith(GROUP_PREFIX)
+        ? companyName.slice(GROUP_PREFIX.length)
+        : null;
 
     // Fallback switch boolean condition
     const isUsingHeuristic = !isModelAvailable || forceHeuristic;
@@ -141,7 +146,9 @@ const RankingPage = () => {
         }
 
         if (companyName && companyName !== 'All') {
-            const target = rankings.find((r) => isCompanyMatch(r.company, companyName));
+            const target = selectedGroupKey
+                ? rankings.find((r) => String(r.company_group_key || '') === selectedGroupKey)
+                : rankings.find((r) => isCompanyMatch(r.company, companyName));
             if (target) {
                 setSelectedCompany(target);
                 return;
@@ -157,7 +164,7 @@ const RankingPage = () => {
         }
 
         setSelectedCompany(rankings[0]);
-    }, [rankings, companyName]);
+    }, [rankings, companyName, selectedGroupKey, selectedCompany]);
 
     const displayRankings = useMemo(() => {
         if (!rankings || rankings.length === 0) return [];
@@ -172,10 +179,24 @@ const RankingPage = () => {
             return rankedWithOriginal;
         }
 
+        if (selectedGroupKey) {
+            const pinnedRows = rankedWithOriginal.filter(
+                (row) => String(row.company_group_key || '') === selectedGroupKey
+            );
+            if (pinnedRows.length === 0) {
+                return rankedWithOriginal;
+            }
+            const pinnedCompanySet = new Set(pinnedRows.map((row) => row.company));
+            const others = rankedWithOriginal.filter((row) => !pinnedCompanySet.has(row.company));
+            return [
+                ...pinnedRows.map((row) => ({ ...row, display_rank: 0 })),
+                ...others.map((row, idx) => ({ ...row, display_rank: idx + 1 })),
+            ];
+        }
+
         const targetIndex = rankedWithOriginal.findIndex(
             (row) => isCompanyMatch(row.company, companyName)
         );
-
         if (targetIndex < 0) {
             return rankedWithOriginal;
         }
@@ -186,7 +207,11 @@ const RankingPage = () => {
             { ...pinned, display_rank: 0 },
             ...others.map((row, idx) => ({ ...row, display_rank: idx + 1 })),
         ];
-    }, [rankings, companyName]);
+    }, [rankings, companyName, selectedGroupKey]);
+
+    const pinnedCompanyLabel = selectedGroupKey
+        ? (displayRankings.find((row) => String(row.company_group_key || '') === selectedGroupKey)?.company_group_label || companyName)
+        : companyName;
 
     if (!dataLoaded) {
         return (
@@ -251,7 +276,8 @@ const RankingPage = () => {
                             data={displayRankings}
                             onRowSelect={setSelectedCompany}
                             selectedId={selectedCompany?.company}
-                            pinnedCompany={companyName}
+                            pinnedCompany={pinnedCompanyLabel}
+                            pinnedGroupKey={selectedGroupKey}
                         />
                     )}
                 </div>
@@ -259,7 +285,11 @@ const RankingPage = () => {
                 <div className="explainer-section">
                     <h3>Company Explainer</h3>
                     <div className="explainer-panel">
-                        <RankingExplainer rowData={selectedCompany} />
+                        <RankingExplainer
+                            rowData={selectedCompany}
+                            rankingError={isError ? rankingError : null}
+                            filterContext={{ country, equipmentType, companyName }}
+                        />
                     </div>
                 </div>
             </div>

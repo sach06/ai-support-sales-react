@@ -170,15 +170,15 @@ def get_company_names(
     """List all available company names, optionally filtered by region/country/equipment."""
     import traceback
     try:
-        companies = data_service.get_all_company_names(
+        hierarchy = data_service.get_company_hierarchy(
             region=region,
             country=country,
             equipment_type=equipment_type,
         )
-        return {"company_names": companies}
+        return hierarchy
     except Exception as e:
         print(f"ERROR in /company-names: {traceback.format_exc()}")
-        return {"company_names": []}
+        return {"company_names": [], "company_groups": [], "standalone_companies": []}
 
 
 # ── /api/data/regions ─────────────────────────────────────────────────────────

@@ -265,8 +265,13 @@ class ProfileGeneratorService:
         module_a_prompt = f"""
 Module A: Corporate Foundation & Strategic Intent.
 
-Draft approximately 600-850 words and return JSON with keys:
-- basic_data (object with string fields: name, hq_address, owner, management, ceo, fte, company_focus, ownership_history, and financials as a brief text summary like "€150-200M annual revenue, EBITDA margin 8-10%, net debt positive")
+Draft approximately 800-1100 words and return JSON with these EXACT keys:
+- basic_data (object with string fields: name, hq_address, owner, management, ceo, fte, company_focus, ownership_history, financials)
+- corporate_history (string: founding year, key milestones, privatization/nationalisation timeline, major mergers or spin-offs. Write 80-150 words with specific dates.)
+- capital_structure (string: ownership breakdown by shareholder %, authorized capital, paid-in capital, stock exchange listing if public. Write 80-120 words with actual figures or best estimates.)
+- employee_breakdown (string: total FTE, blue-collar vs white-collar split as % or absolute, country-by-country headcount distribution where known. Write 60-100 words with specific numbers.)
+- executive_board (string: list the CEO, CFO, COO, Board Chair and at least 3 other key management team members with their exact roles. Format as a simple numbered list: "1. [Name] — [Title]". Minimum 5 entries.)
+- subsidiaries (string: list 5-10 key subsidiaries/affiliates with their country, main steel products and approximate capacity in kt/y. Format as a numbered list with a brief 1-sentence description per entry.)
 - workforce_strategy (string)
 - financial_trend_5y (string)
 - strategic_vision_steel_2030 (string)
@@ -285,20 +290,25 @@ CONTEXT:
         module_b_prompt = f"""
 Module B: Operational Footprint & Technical Installed Base.
 
-Draft approximately 1000-1400 words and return JSON with keys:
-- operational_summary (string)
+Draft approximately 1200-1600 words and return JSON with these EXACT keys:
+- operational_summary (string: concise 150-200 word overview of the company's operational footprint — number of sites, countries, total capacity, process route BF-BOF or EAF, headline age profile)
 - location_audit (array of objects with: address, city, country, logistics_context, plant_type, equipment_detail, oem, automation_spec, rated_tpy, actual_tpy, final_products)
-- equipment_detail_summary (string)
-- latest_projects (string)
-- realized_projects (string)
+- equipment_detail_summary (string: 150-200 word analysis of the SMS-relevant modernization opportunities across the fleet — which equipment families need upgrading and why)
+- sms_delivery_history (string: list all SMS group-supplied equipment and projects at this customer that are visible from the installed base or CRM data. Format as a numbered list: "1. [Year approx] — [Equipment Type] — [Plant/Site] — [Status: Operating/Shut Down]". If no specific history is known, list the equipment types in the IB that match SMS product lines.)
+- current_projects_detail (string: describe 2-5 currently active sales opportunities or  proposals in any phase — tender, negotiation, or pre-sales. For each: project name or description, estimated value range, current phase, main decision-maker if known. Format as numbered list.)
+- projects_under_execution (string: list projects already ordered and actively being executed/built. For each: project description, order value if available, expected completion. Format as numbered list. If none known, state "No projects currently under execution per available CRM data.")
+- lost_projects (string: describe 2-5 major projects that went to competitors in the last 3-5 years. For each: project description, competitor who won, reason for loss if known. Format as numbered list. If none known from data, provide industry-benchmark context on typical loss reasons in this market segment.)
+- announced_investments (string: 2-5 publicly announced investment projects by this customer from recent news or industry sources. For each: investment description, capex size if stated, timeline. Format as numbered list.)
 - metallurgical_findings (object with string fields:
-    process_efficiency: Write 200-300 words on: specific process efficiency assessment based on equipment age and type; estimated yield rates (% HRC/CR yield); energy intensity (kWh/t for meltshop/casting/rolling individually if data available); heat-to-heat interval if EAF/BOF present; primary process variability drivers (temperature control, cobble rate, scrap management). Reference specific equipment types found in the installed base and name the bottleneck constraints.
-    carbon_footprint_strategy: Write 150-200 words on: current CO2 production route (BF-BOF, EAF, or mixed route); estimated CO2 footprint per tonne of steel vs European benchmark; green steel transition stage and publicly stated target year if any; H2 readiness and DRI feasibility; scrap availability and electricity grid mix; how SMS decarbonization portfolio (EAF, H2-ready burners, energy-tracking X-Pact modules) maps to their transition path.
-    modernization_potential: Write 200-300 words: rank each equipment family by modernization urgency using a three-tier framework — Critical (>20 years, high failure risk), Priority (10-20 years, efficiency gap), Recent (<10 years, digital gap only). For Critical and Priority tiers, name the specific SMS technology modules that apply (X-Pact Level 2 automation, EAF package, Flexible Slab Caster, Innex high cooling, Cold Rolling Mill revamp, Downstream Finishing Line). Estimate capex scale (small <€20M, medium €20-100M, large >€100M) for each tier.
-    technical_bottlenecks: Identify exactly 4-5 specific technical constraints present in this fleet: automation layer age and HMI generation; refractory wear management capability; cooling water system age and risk; sensor coverage and data historian gaps; roll shop or workshop limitations. For each bottleneck, name the targeted SMS X-Pact digitalization entry point or service module that addresses it.)
+    process_efficiency: Write 200-300 words on process efficiency assessment based on equipment age and type.
+    carbon_footprint_strategy: Write 150-200 words on current CO2 production route and green steel transition.
+    modernization_potential: Write 200-300 words ranking equipment families by modernization urgency.
+    technical_bottlenecks: Identify exactly 4-5 specific technical constraints present in this fleet.)
+- realized_projects (string: summarize the overall SMS project history with this customer — won value, win rate, key milestones)
+- latest_projects (string: the 3-5 most recent project interactions from CRM, with dates and outcomes)
 - references (array of strings)
 
-CRITICAL for location_audit: Use ONLY real city names derived from the installed base data or company knowledge. Never write 'Not available', 'N/A', or 'Unknown' in the city field — use the nearest major city or plant region name instead.
+CRITICAL for location_audit: Use ONLY real city names. Never write 'Not available', 'N/A', or 'Unknown' in the city field.
 Include location-by-location and OEM-level detail.
 
 {resource_guidance}
@@ -310,11 +320,14 @@ CONTEXT:
         module_c_prompt = f"""
 Module C: Market Standing & End-Customer Ecosystem.
 
-Draft approximately 500-700 words and return JSON with keys:
-- downstream_customer_analysis (string)
-- market_share_analysis (string)
+Draft approximately 700-900 words and return JSON with these EXACT keys:
+- downstream_customer_analysis (string: 200-250 word analysis of this company's role in the downstream steel value chain — what markets they serve and what that means for SMS)
+- market_share_analysis (string: 150-200 word competitive landscape — who are the main competitors to SMS for this customer's projects, and what is SMS's historic win/loss posture)
+- product_portfolio (string: describe the company's steel product portfolio — flat products %, long products %, coated %, stainless/special steel %, strip, plate, wire rod etc. with approximate tonnage splits where known. Format as a short structured list.)
+- end_market_breakdown (string: describe approximate end-market split — automotive %, construction %, energy/pipes %, white goods %, exports %, other %. Include key OEM/automotive customers if known.)
+- sms_commercial_structure (string: describe how SMS group is commercially organized to sell to this customer — which SMS divisions or business units are involved, key account manager structure, whether there are framework agreements, and the typical sales process for major capex decisions at this customer.)
 - relationship_management (object with: customer_rating, key_persons, latest_visit_sentiment, sms_contacts, relationship_status)
-- sales_implications (string)
+- sales_implications (string: 200-250 word strategic sales recommendation — what SMS should do now to maximize share of wallet)
 - references (array of strings)
 
 Focus on end-customer exposure and CRM relationship quality.
@@ -418,7 +431,9 @@ CONTEXT:
         module_c: Dict,
         module_d: Dict,
     ) -> Dict:
-        """Merge module outputs into the canonical profile schema used by exports and UI."""
+        """Merge module outputs into the canonical profile schema used by exports and UI.
+        Each module field is assigned to EXACTLY ONE main profile field to avoid duplication.
+        """
         base = self._generate_fallback_profile(customer_data, extra_context)
 
         def _txt(v) -> str:
@@ -431,92 +446,133 @@ CONTEXT:
             ]
             return "\n\n".join(non_empty)
 
-        # Module A -> basic corporate foundation
+        # ── Module A → Corporate Foundation ──────────────────────────────────
         if isinstance(module_a.get("basic_data"), dict):
-            base["basic_data"].update(module_a.get("basic_data", {}))
+            base["basic_data"].update(module_a["basic_data"])
 
-        # Module B location audit enriches locations
+        # New detailed corporate fields — stored inside basic_data dict
+        for field in ["corporate_history", "capital_structure", "employee_breakdown",
+                      "executive_board", "subsidiaries"]:
+            if _txt(module_a.get(field)):
+                base["basic_data"][field] = _txt(module_a[field])
+
+        # Module A → market_intelligence (each field used only here)
+        if _txt(module_a.get("financial_trend_5y")):
+            base["market_intelligence"]["financial_health"] = _txt(module_a["financial_trend_5y"])
+        if _txt(module_a.get("strategic_vision_steel_2030")):
+            base["market_intelligence"]["strategic_outlook"] = _txt(module_a["strategic_vision_steel_2030"])
+        if _txt(module_a.get("workforce_strategy")):
+            base["market_intelligence"]["workforce_strategy"] = _txt(module_a["workforce_strategy"])
+
+        # Module A → sales_strategy
+        if _txt(module_a.get("buying_center_map")):
+            base["sales_strategy"]["buying_center_map"] = _txt(module_a["buying_center_map"])
+
+        # ── Module B → Operations & Projects ─────────────────────────────────
         if isinstance(module_b.get("location_audit"), list) and module_b.get("location_audit"):
-            base["locations"] = module_b.get("location_audit", [])[:30]
+            base["locations"] = module_b["location_audit"][:30]
 
-        # Priority analysis synthesized from A+B+C+D
-        base["priority_analysis"]["company_explainer"] = _join(
-            module_a.get("strategic_vision_steel_2030", ""),
-            module_b.get("operational_summary", ""),
-            module_c.get("market_share_analysis", ""),
-        ) or base["priority_analysis"].get("company_explainer", "")
+        # priority_analysis.company_explainer = B operational_summary ONLY
+        if _txt(module_b.get("operational_summary")):
+            base["priority_analysis"]["company_explainer"] = _txt(module_b["operational_summary"])
 
-        base["priority_analysis"]["key_opportunity_drivers"] = _join(
-            module_b.get("equipment_detail_summary", ""),
-            module_c.get("sales_implications", ""),
-            module_d.get("compliance_implications_for_sms", ""),
-        ) or base["priority_analysis"].get("key_opportunity_drivers", "")
+        # priority_analysis.key_opportunity_drivers = B equipment_detail_summary ONLY
+        if _txt(module_b.get("equipment_detail_summary")):
+            base["priority_analysis"]["key_opportunity_drivers"] = _txt(module_b["equipment_detail_summary"])
 
-        base["priority_analysis"]["engagement_recommendation"] = _join(
-            module_c.get("relationship_management", {}).get("relationship_status", "") if isinstance(module_c.get("relationship_management"), dict) else "",
-            module_c.get("sales_implications", ""),
-            module_d.get("risk_assessment", ""),
-            module_d.get("framework_agreements", ""),
-        ) or base["priority_analysis"].get("engagement_recommendation", "")
+        # Project and history fields → history (each field unique)
+        for hist_key, mod_key in [
+            ("latest_projects", "latest_projects"),
+            ("realized_projects", "realized_projects"),
+            ("current_projects_detail", "current_projects_detail"),
+            ("projects_under_execution", "projects_under_execution"),
+            ("lost_projects", "lost_projects"),
+            ("sms_delivery_history", "sms_delivery_history"),
+        ]:
+            if _txt(module_b.get(mod_key)):
+                base["history"][hist_key] = _txt(module_b[mod_key])
 
-        # History and relationship details
-        rm = module_c.get("relationship_management", {}) if isinstance(module_c.get("relationship_management"), dict) else {}
-        base["history"]["latest_projects"] = _join(module_b.get("latest_projects", "")) or base["history"].get("latest_projects", "")
-        base["history"]["realized_projects"] = _join(module_b.get("realized_projects", ""))
-        base["history"]["crm_rating"] = _txt(rm.get("customer_rating", base["history"].get("crm_rating", "")))
-        base["history"]["key_person"] = _txt(rm.get("key_persons", base["history"].get("key_person", "")))
-        base["history"]["latest_visits"] = _txt(rm.get("latest_visit_sentiment", base["history"].get("latest_visits", "")))
-        base["history"]["sms_relationship"] = _txt(rm.get("sms_contacts", base["history"].get("sms_relationship", "")))
+        # announced_investments → market_intelligence
+        if _txt(module_b.get("announced_investments")):
+            base["market_intelligence"]["announced_investments"] = _txt(module_b["announced_investments"])
 
-        # Market intelligence
-        base["market_intelligence"]["financial_health"] = _join(
-            module_a.get("financial_trend_5y", ""),
-            module_a.get("workforce_strategy", ""),
-        ) or base["market_intelligence"].get("financial_health", "")
-        base["market_intelligence"]["market_position"] = _join(
-            module_c.get("downstream_customer_analysis", ""),
-            module_c.get("market_share_analysis", ""),
-        ) or base["market_intelligence"].get("market_position", "")
-        base["market_intelligence"]["strategic_outlook"] = _join(module_a.get("strategic_vision_steel_2030", ""))
-        base["market_intelligence"]["risk_assessment"] = _join(module_d.get("risk_assessment", ""))
+        # sales_strategy.recommended_portfolio = B equipment_detail_summary
+        if _txt(module_b.get("equipment_detail_summary")):
+            base["sales_strategy"]["recommended_portfolio"] = _txt(module_b["equipment_detail_summary"])
 
-        # Country intelligence and risk/compliance context
-        base["country_intelligence"]["trade_tariff_context"] = _join(
-            base["country_intelligence"].get("trade_tariff_context", ""),
-            module_d.get("embargo_exposure", ""),
+        # statistical_interpretations enriched by operational summary (short prefix)
+        if _txt(module_b.get("operational_summary")):
+            existing_chart_note = _txt(base["statistical_interpretations"].get("charts_explanation", ""))
+            base["statistical_interpretations"]["charts_explanation"] = _join(
+                existing_chart_note,
+                _txt(module_b["operational_summary"])[:600],
+            ) or existing_chart_note
+
+        # Metallurgical insights from Module B ONLY
+        metallurgical = module_b.get("metallurgical_findings", {})
+        if isinstance(metallurgical, dict):
+            for key in ["process_efficiency", "carbon_footprint_strategy",
+                        "modernization_potential", "technical_bottlenecks"]:
+                if _txt(metallurgical.get(key)):
+                    base["metallurgical_insights"][key] = _txt(metallurgical[key])
+
+        # ── Module C → Market Standing ────────────────────────────────────────
+        rm = module_c.get("relationship_management", {}) \
+            if isinstance(module_c.get("relationship_management"), dict) else {}
+
+        # engagement_recommendation = C relationship_status ONLY
+        if _txt(rm.get("relationship_status")):
+            base["priority_analysis"]["engagement_recommendation"] = _txt(rm["relationship_status"])
+
+        # market_intelligence from C (each used only here)
+        if _txt(module_c.get("downstream_customer_analysis")):
+            base["market_intelligence"]["market_position"] = _txt(module_c["downstream_customer_analysis"])
+        if _txt(module_c.get("product_portfolio")):
+            base["market_intelligence"]["product_portfolio"] = _txt(module_c["product_portfolio"])
+        if _txt(module_c.get("end_market_breakdown")):
+            base["market_intelligence"]["end_market_breakdown"] = _txt(module_c["end_market_breakdown"])
+
+        # relationship fields → history (each used only here)
+        if _txt(rm.get("customer_rating")):
+            base["history"]["crm_rating"] = _txt(rm["customer_rating"])
+        if _txt(rm.get("key_persons")):
+            base["history"]["key_person"] = _txt(rm["key_persons"])
+        if _txt(rm.get("latest_visit_sentiment")):
+            base["history"]["latest_visits"] = _txt(rm["latest_visit_sentiment"])
+        if _txt(rm.get("sms_contacts")):
+            base["history"]["sms_relationship"] = _txt(rm["sms_contacts"])
+
+        # sales_strategy from C (each used only here)
+        if _txt(module_c.get("sales_implications")):
+            base["sales_strategy"]["value_proposition"] = _txt(module_c["sales_implications"])
+        if _txt(module_c.get("market_share_analysis")):
+            base["sales_strategy"]["competitive_landscape"] = _txt(module_c["market_share_analysis"])
+        if _txt(module_c.get("sms_commercial_structure")):
+            base["sales_strategy"]["sms_commercial_structure"] = _txt(module_c["sms_commercial_structure"])
+
+        # ── Module D → Risk & Compliance ─────────────────────────────────────
+        # country_intelligence from D (appended to existing country data)
+        existing_trade = _txt(base["country_intelligence"].get("trade_tariff_context", ""))
+        d_embargo = _txt(module_d.get("embargo_exposure", ""))
+        base["country_intelligence"]["trade_tariff_context"] = (
+            _join(existing_trade, d_embargo) or existing_trade or "N/A"
         )
-        base["country_intelligence"]["investment_drivers"] = _join(
-            base["country_intelligence"].get("investment_drivers", ""),
-            module_d.get("esg_and_cbam_alignment", ""),
+
+        existing_inv = _txt(base["country_intelligence"].get("investment_drivers", ""))
+        d_esg = _txt(module_d.get("esg_and_cbam_alignment", ""))
+        base["country_intelligence"]["investment_drivers"] = (
+            _join(existing_inv, d_esg) or existing_inv or "N/A"
         )
 
-        # Metallurgical insights
-        metallurgical = module_b.get("metallurgical_findings", {}) if isinstance(module_b.get("metallurgical_findings"), dict) else {}
-        for key in ["process_efficiency", "carbon_footprint_strategy", "modernization_potential", "technical_bottlenecks"]:
-            if _txt(metallurgical.get(key, "")):
-                base["metallurgical_insights"][key] = _txt(metallurgical.get(key, ""))
+        # risk_assessment and compliance → used only here
+        if _txt(module_d.get("risk_assessment")):
+            base["market_intelligence"]["risk_assessment"] = _txt(module_d["risk_assessment"])
+        if _txt(module_d.get("framework_agreements")):
+            base["sales_strategy"]["suggested_next_steps"] = _txt(module_d["framework_agreements"])
+        if _txt(module_d.get("compliance_implications_for_sms")):
+            base["sales_strategy"]["compliance_guidance"] = _txt(module_d["compliance_implications_for_sms"])
 
-        # Sales strategy
-        base["sales_strategy"]["value_proposition"] = _join(
-            module_c.get("sales_implications", ""),
-            module_d.get("compliance_implications_for_sms", ""),
-            module_b.get("equipment_detail_summary", ""),
-        ) or base["sales_strategy"].get("value_proposition", "")
-        base["sales_strategy"]["recommended_portfolio"] = _join(module_b.get("equipment_detail_summary", ""))
-        base["sales_strategy"]["competitive_landscape"] = _join(module_c.get("market_share_analysis", ""))
-        base["sales_strategy"]["suggested_next_steps"] = _join(
-            module_c.get("sales_implications", ""),
-            module_d.get("risk_assessment", ""),
-            module_d.get("framework_agreements", ""),
-        )
-
-        # Statistical interpretation enriched by operational audit summary
-        base["statistical_interpretations"]["charts_explanation"] = _join(
-            base["statistical_interpretations"].get("charts_explanation", ""),
-            module_b.get("operational_summary", ""),
-        )
-
-        # References
+        # ── References ────────────────────────────────────────────────────────
         refs = []
         for source in (
             module_a.get("references", []),
@@ -544,7 +600,7 @@ CONTEXT:
                 dedup_refs.append(r)
         base["references"] = dedup_refs[:30]
 
-        # Preserve all module narratives for extended exports and audits
+        # ── Preserve raw modules for appendix section ─────────────────────────
         base["modular_sections"] = {
             "module_a": module_a,
             "module_b": module_b,
@@ -556,22 +612,20 @@ CONTEXT:
             "approach": "A-B-C-D sequential drafting",
             "target_report_type": "Deep-Dive Industrial Profile",
         }
-        
+
         # Sanitize basic_data to ensure all fields are strings (not nested objects)
         if isinstance(base.get("basic_data"), dict):
-            for key in base["basic_data"]:
+            for key in list(base["basic_data"].keys()):
                 val = base["basic_data"][key]
                 if isinstance(val, dict):
-                    # Convert nested object to readable string
                     base["basic_data"][key] = " | ".join(
                         f"{k}: {str(v)}" for k, v in val.items() if v is not None
                     ) or str(val)
                 elif isinstance(val, list):
-                    # Convert list to comma-separated string
                     base["basic_data"][key] = ", ".join(str(v) for v in val if v is not None) or str(val)
                 elif val is not None:
                     base["basic_data"][key] = str(val)
-        
+
         return base
 
     def _extract_json(self, content: str) -> Dict:
@@ -697,6 +751,30 @@ CONTEXT:
                 f"  Win Rate: {metrics.get('win_rate', 'N/A')}%\n"
                 f"  Years of Data: {metrics.get('time_span', 'N/A')}"
             )
+
+        if extra.get('customer_interaction_summary'):
+            summary = extra['customer_interaction_summary']
+            context_parts.append(
+                "CUSTOMER INTERACTIONS SUMMARY:\n"
+                f"  Display name: {summary.get('display_name', 'Unknown')}\n"
+                f"  Total interactions: {summary.get('total_interactions', 0)}\n"
+                f"  Last contact date: {summary.get('last_contact_date', 'N/A')}\n"
+                f"  Last contact location: {summary.get('last_contact_location', 'N/A')}\n"
+                f"  Last contact owner: {summary.get('last_contact_owner', 'N/A')}\n"
+                f"  Last contact subject: {summary.get('last_contact_subject', 'N/A')}\n"
+                f"  Main channels: {', '.join(summary.get('top_channels', [])) or 'N/A'}\n"
+                f"  Main SMS contacts: {', '.join(summary.get('top_contacts', [])) or 'N/A'}"
+            )
+
+        if extra.get('customer_interactions'):
+            interactions = extra['customer_interactions']
+            snippets = []
+            for item in interactions[:8]:
+                snippets.append(
+                    f"- {item.get('start_dt', '')[:10]} | {item.get('account', '')} | {item.get('meeting_location', '')} | {item.get('employee_responsible', '')} | {item.get('subject', '')}"
+                )
+            if snippets:
+                context_parts.append("RECENT CUSTOMER INTERACTIONS:\n" + "\n".join(snippets))
 
         # ── Installed base summary (Axel's IB) ────────────────────────────────
         if extra.get('ib_summary') and extra['ib_summary'].get('n_units', 0) > 0:
@@ -1231,11 +1309,22 @@ CRITICAL INSTRUCTIONS:
 
         hist = extra.get('crm_history', {}) if isinstance(extra.get('crm_history', {}), dict) else {}
         metrics = hist.get('metrics', {}) if isinstance(hist.get('metrics', {}), dict) else {}
+        interaction_summary = extra.get('customer_interaction_summary', {}) if isinstance(extra.get('customer_interaction_summary', {}), dict) else {}
+        latest_visit_parts = []
+        if interaction_summary.get('last_contact_date'):
+            latest_visit_parts.append(f"Last contact: {interaction_summary['last_contact_date'][:10]}")
+        if interaction_summary.get('last_contact_location'):
+            latest_visit_parts.append(f"Location: {interaction_summary['last_contact_location']}")
+        if interaction_summary.get('last_contact_owner'):
+            latest_visit_parts.append(f"By: {interaction_summary['last_contact_owner']}")
+        if interaction_summary.get('last_contact_subject'):
+            latest_visit_parts.append(f"Subject: {interaction_summary['last_contact_subject']}")
         profile['history'] = {
             "latest_projects": "CRM project history should be reviewed against current installed-base bottlenecks to prioritize the strongest re-entry points.",
             "total_won_value_eur": str(metrics.get('total_won_value', 'N/A')),
             "win_rate_pct": str(metrics.get('win_rate', 'N/A')),
             "sms_relationship": "Use current CRM ownership and historical contact map for account governance.",
+            "latest_visits": ' | '.join(latest_visit_parts) if latest_visit_parts else 'No recent customer interactions available in the SAP Sales Cloud visit export.',
         }
 
         profile['market_intelligence'] = {

@@ -30,6 +30,7 @@ const ProfileSections = ({ profile }) => {
         { id: 'basic', label: 'Basic Data' },
         { id: 'locations', label: 'Locations & Setup' },
         { id: 'history', label: 'Background & History' },
+        { id: 'interactions', label: 'Interactions' },
         { id: 'financial', label: 'Financial Status' },
         { id: 'strategy', label: 'Customer Strategy' },
         { id: 'evidence', label: 'Internal Evidence' },
@@ -62,6 +63,36 @@ const ProfileSections = ({ profile }) => {
                 <h4>Ownership Type</h4>
                 <p>{renderText(profile?.basic_data?.ownership_type ?? profile?.basic_data?.owner)}</p>
             </div>
+            {profile?.basic_data?.employee_breakdown && (
+                <div className="data-group full-width">
+                    <h4>Employee Breakdown (Blue-Collar / White-Collar)</h4>
+                    <p>{renderText(profile.basic_data.employee_breakdown)}</p>
+                </div>
+            )}
+            {profile?.basic_data?.corporate_history && (
+                <div className="data-group full-width">
+                    <h4>Corporate History & Origin</h4>
+                    <p>{renderText(profile.basic_data.corporate_history)}</p>
+                </div>
+            )}
+            {profile?.basic_data?.capital_structure && (
+                <div className="data-group full-width">
+                    <h4>Shareholding & Capital Structure</h4>
+                    <p>{renderText(profile.basic_data.capital_structure)}</p>
+                </div>
+            )}
+            {profile?.basic_data?.executive_board && (
+                <div className="data-group full-width">
+                    <h4>Executive Board & Senior Management</h4>
+                    <p style={{ whiteSpace: 'pre-wrap' }}>{renderText(profile.basic_data.executive_board)}</p>
+                </div>
+            )}
+            {profile?.basic_data?.subsidiaries && (
+                <div className="data-group full-width">
+                    <h4>Key Subsidiaries & Affiliates</h4>
+                    <p style={{ whiteSpace: 'pre-wrap' }}>{renderText(profile.basic_data.subsidiaries)}</p>
+                </div>
+            )}
             <div className="data-group full-width">
                 <h4>Board And Management Deep Dive</h4>
                 <p>{renderText(profile?.basic_data?.management_deep_dive ?? profile?.basic_data?.management)}</p>
@@ -74,6 +105,16 @@ const ProfileSections = ({ profile }) => {
                 <h4>Recent Facts & Overview</h4>
                 <p>{renderText(profile?.basic_data?.recent_facts, 'No description available.')}</p>
             </div>
+            {profile?.customer_scope?.selection_type === 'group' && (
+                <div className="data-group full-width">
+                    <h4>Selected Parent Company Scope</h4>
+                    <p>
+                        {renderText(profile?.customer_scope?.display_name)}
+                        {' - '}
+                        {(profile?.customer_scope?.company_names || []).length} branches included in this analysis.
+                    </p>
+                </div>
+            )}
         </div>
     );
 
@@ -192,11 +233,41 @@ const ProfileSections = ({ profile }) => {
                 <p><strong>SMS Contact:</strong> {profile?.history?.sms_relationship || 'N/A'}</p>
                 <p><strong>Customer Key Person:</strong> {profile?.history?.key_person || 'N/A'}</p>
             </div>
+            {profile?.history?.sms_delivery_history && (
+                <div className="history-section">
+                    <h4>Existing SMS Group Facilities (History)</h4>
+                    <p style={{ whiteSpace: 'pre-wrap' }}>{renderText(profile.history.sms_delivery_history)}</p>
+                </div>
+            )}
             <div className="history-section">
-                <h4>Projects & Interactions</h4>
+                <h4>Projects &amp; Interactions</h4>
                 <p><strong>Latest Projects:</strong> {profile?.history?.latest_projects || 'N/A'}</p>
                 <p><strong>History:</strong> {profile?.basic_data?.ownership_history || 'N/A'}</p>
             </div>
+            {profile?.history?.current_projects_detail && (
+                <div className="history-section">
+                    <h4>Current Projects (Active Opportunities)</h4>
+                    <p style={{ whiteSpace: 'pre-wrap' }}>{renderText(profile.history.current_projects_detail)}</p>
+                </div>
+            )}
+            {profile?.history?.projects_under_execution && (
+                <div className="history-section">
+                    <h4>Projects Under Execution</h4>
+                    <p style={{ whiteSpace: 'pre-wrap' }}>{renderText(profile.history.projects_under_execution)}</p>
+                </div>
+            )}
+            {profile?.history?.lost_projects && (
+                <div className="history-section">
+                    <h4>Lost Projects</h4>
+                    <p style={{ whiteSpace: 'pre-wrap' }}>{renderText(profile.history.lost_projects)}</p>
+                </div>
+            )}
+            {profile?.market_intelligence?.announced_investments && (
+                <div className="history-section">
+                    <h4>Announced Investments (News)</h4>
+                    <p style={{ whiteSpace: 'pre-wrap' }}>{renderText(profile.market_intelligence.announced_investments)}</p>
+                </div>
+            )}
             <div className="history-section">
                 <h4>Active Opportunity Deep Dive</h4>
                 <p>{profile?.history?.active_opportunity_deep_dive || 'No active opportunity deep dive available yet.'}</p>
@@ -290,16 +361,61 @@ const ProfileSections = ({ profile }) => {
         );
     };
 
+    const renderInteractions = () => {
+        const summary = asObject(profile?.customer_interaction_summary);
+        const interactions = asArray(profile?.customer_interactions);
+        return (
+            <div className="tab-content history-stack">
+                <div className="history-section">
+                    <h4>Interaction Summary</h4>
+                    <p><strong>Total interactions:</strong> {summary.total_interactions ?? 0}</p>
+                    <p><strong>Last contact date:</strong> {renderText(summary.last_contact_date)}</p>
+                    <p><strong>Last contact location:</strong> {renderText(summary.last_contact_location)}</p>
+                    <p><strong>Last contact owner:</strong> {renderText(summary.last_contact_owner)}</p>
+                    <p><strong>Last contact subject:</strong> {renderText(summary.last_contact_subject)}</p>
+                    <p><strong>Main channels:</strong> {Array.isArray(summary.top_channels) && summary.top_channels.length > 0 ? summary.top_channels.join(', ') : 'N/A'}</p>
+                </div>
+                <div className="history-section">
+                    <h4>Recent Interaction Timeline</h4>
+                    {interactions.length === 0 ? (
+                        <p className="empty-msg">No interaction records available in the SAP Sales Cloud export.</p>
+                    ) : (
+                        <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', marginTop: '0.5rem' }}>
+                            <thead>
+                                <tr style={{ borderBottom: '2px solid var(--border)' }}>
+                                    <th style={{ padding: '0.75rem 0.5rem' }}>Date</th>
+                                    <th style={{ padding: '0.75rem 0.5rem' }}>Account</th>
+                                    <th style={{ padding: '0.75rem 0.5rem' }}>Channel / Location</th>
+                                    <th style={{ padding: '0.75rem 0.5rem' }}>Responsible</th>
+                                    <th style={{ padding: '0.75rem 0.5rem' }}>Subject</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {interactions.slice(0, 15).map((item, i) => {
+                                    const channel = [item.distribution_channel, item.meeting_location].filter(Boolean).join(' | ');
+                                    const dateVal = String(item.start_dt || '').slice(0, 10);
+                                    return (
+                                        <tr key={`${item.subject || 'interaction'}-${i}`} style={{ borderBottom: '1px solid var(--border)' }}>
+                                            <td style={{ padding: '0.6rem 0.5rem' }}>{dateVal || 'N/A'}</td>
+                                            <td style={{ padding: '0.6rem 0.5rem' }}>{renderText(item.account)}</td>
+                                            <td style={{ padding: '0.6rem 0.5rem' }}>{channel || 'N/A'}</td>
+                                            <td style={{ padding: '0.6rem 0.5rem' }}>{renderText(item.employee_responsible)}</td>
+                                            <td style={{ padding: '0.6rem 0.5rem' }}>{renderText(item.subject)}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
     const renderStrategy = () => (
         <div className="tab-content strategy-stack">
             {profile?.priority_analysis?.company_explainer && (
-                <div className="strategy-section explainer-section" style={{
-                    background: 'var(--bg-secondary)',
-                    padding: '1.5rem',
-                    borderRadius: '8px',
-                    borderLeft: '4px solid var(--primary)',
-                    marginBottom: '2rem'
-                }}>
+                <div className="strategy-section explainer-section">
                     <h4 style={{ marginTop: 0, color: 'var(--primary)' }}>
                         Priority Ranking Assessment
                     </h4>
@@ -318,16 +434,41 @@ const ProfileSections = ({ profile }) => {
                 </div>
             )}
 
+            {profile?.sales_strategy?.sms_commercial_structure && (
+                <div className="strategy-section">
+                    <h4>Commercial Sales — SMS Group Structure</h4>
+                    <p style={{ whiteSpace: 'pre-wrap' }}>{renderText(profile.sales_strategy.sms_commercial_structure)}</p>
+                </div>
+            )}
             <div className="strategy-section">
                 <h4>Strategic Outlook & Market Position</h4>
                 <p><strong>Market Position:</strong> {renderText(profile?.market_intelligence?.market_position)}</p>
                 <p><strong>Outlook:</strong> {renderText(profile?.market_intelligence?.strategic_outlook)}</p>
             </div>
+            {(profile?.market_intelligence?.product_portfolio || profile?.market_intelligence?.end_market_breakdown) && (
+                <div className="strategy-section">
+                    <h4>Products & End Markets</h4>
+                    {profile?.market_intelligence?.product_portfolio && (
+                        <><p><strong>Product Portfolio:</strong></p>
+                        <p style={{ whiteSpace: 'pre-wrap' }}>{renderText(profile.market_intelligence.product_portfolio)}</p></>
+                    )}
+                    {profile?.market_intelligence?.end_market_breakdown && (
+                        <><p style={{ marginTop: '0.75rem' }}><strong>End Market Breakdown:</strong></p>
+                        <p style={{ whiteSpace: 'pre-wrap' }}>{renderText(profile.market_intelligence.end_market_breakdown)}</p></>
+                    )}
+                </div>
+            )}
             <div className="strategy-section">
                 <h4>SMS Group Relationship And Leverage Points</h4>
                 <p><strong>Relationship Assessment:</strong> {renderText(profile?.history?.sms_relationship ?? profile?.sales_strategy?.sms_relationship_assessment)}</p>
                 <p><strong>SMS Strengths To Leverage:</strong> {renderText(profile?.sales_strategy?.sms_strengths_to_leverage)}</p>
             </div>
+            {profile?.sales_strategy?.buying_center_map && (
+                <div className="strategy-section">
+                    <h4>Buying Center Map</h4>
+                    <p style={{ whiteSpace: 'pre-wrap' }}>{renderText(profile.sales_strategy.buying_center_map)}</p>
+                </div>
+            )}
             <div className="strategy-section">
                 <h4>Decarbonization / Tech Insights</h4>
                 <p>{renderText(profile?.metallurgical_insights?.carbon_footprint_strategy)}</p>
@@ -338,6 +479,12 @@ const ProfileSections = ({ profile }) => {
                 <p><strong>Pitch:</strong> {renderText(profile?.sales_strategy?.value_proposition)}</p>
                 <p><strong>Next Steps:</strong> {renderText(profile?.sales_strategy?.suggested_next_steps)}</p>
             </div>
+            {profile?.sales_strategy?.compliance_guidance && (
+                <div className="strategy-section">
+                    <h4>Compliance & Regulatory Guidance for SMS</h4>
+                    <p style={{ whiteSpace: 'pre-wrap' }}>{renderText(profile.sales_strategy.compliance_guidance)}</p>
+                </div>
+            )}
         </div>
     );
 
@@ -496,6 +643,7 @@ const ProfileSections = ({ profile }) => {
                 {activeTab === 'basic' && renderBasicData()}
                 {activeTab === 'locations' && renderLocations()}
                 {activeTab === 'history' && renderHistory()}
+                {activeTab === 'interactions' && renderInteractions()}
                 {activeTab === 'financial' && renderFinancial()}
                 {activeTab === 'strategy' && renderStrategy()}
                 {activeTab === 'evidence' && renderEvidence()}

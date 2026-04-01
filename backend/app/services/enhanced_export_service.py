@@ -30,6 +30,7 @@ class EnhancedExportService:
     """Service for generating professional DOCX and PDF exports"""
     
     def __init__(self):
+        self._export_seen_blocks = set()
         # Configure plotly for static image export if available
         if PLOTLY_AVAILABLE:
             try:
@@ -52,6 +53,7 @@ class EnhancedExportService:
         """
         Generate comprehensive 10+ page customer analysis DOCX.
         """
+        self._export_seen_blocks = set()
         doc = Document()
         self._setup_document_styles(doc)
         self._add_title_page(doc, customer_name)
@@ -72,44 +74,44 @@ class EnhancedExportService:
         # Pg 4: Project History & Sales Relationship
         self._add_sales_relationship_section(doc, profile_data)
 
-        # Pg 5: CRM Historical Performance
+        # Pg 5: Customer Interactions
+        self._add_customer_interactions_section(doc, profile_data)
+
+        # Pg 6: CRM Historical Performance
         self._add_historical_crm_section(doc, crm_history, customer_name)
 
-        # Pg 6: Deep Dive Analytics
+        # Pg 7: Deep Dive Analytics
         if customer_data:
             self._add_deep_dive_section(doc, customer_data, charts)
 
-        # Pg 7: Market Intelligence
+        # Pg 8: Market Intelligence
         if market_intel:
             self._add_market_intelligence_section(doc, market_intel)
 
-        # Pg 8: Country-Level External Intelligence
+        # Pg 9: Country-Level External Intelligence
         self._add_country_intelligence_section(doc, profile_data)
 
-        # Pg 9: Installed Base Summary (Axel's IB list)
+        # Pg 10: Installed Base Summary (Axel's IB list)
         self._add_installed_base_section(doc, ib_data, customer_name)
 
-        # Pg 10: Project Analysis
+        # Pg 11: Project Analysis
         if projects:
             self._add_project_section(doc, projects, charts)
 
-        # Pg 11: Metallurgical & Technical Insights
+        # Pg 12: Metallurgical & Technical Insights
         self._add_metallurgical_section(doc, profile_data)
 
-        # Pg 12: Strategic Sales Pitch
+        # Pg 13: Strategic Sales Pitch
         self._add_sales_strategy_section(doc, profile_data)
 
-        # Pg 13: Financial Analysis
+        # Pg 14: Financial Analysis
         if financial_data:
             self._add_financial_section(doc, financial_data, charts)
 
-        # Pg 14: Modular Deep-Dive Chapters (A-D)
-        self._add_modular_deep_dive_section(doc, profile_data)
-
-        # Pg 15: Recent News & Developments (Moved here)
+        # Pg 14: Recent News & Developments
         self._add_recent_news_section(doc, profile_data)
 
-        # Pg 16: References
+        # Pg 15: References
         self._add_references_section(doc, profile_data)
 
         self._add_footer(doc)
@@ -204,22 +206,48 @@ class EnhancedExportService:
             '1. Customer Profile',
             '2. Priority Ranking Analysis',
             '3. Project History & Sales Relationship',
-            '4. CRM Historical Performance',
-            '5. Deep Dive Analytics',
-            '6. Market Intelligence',
-            '7. Country-Level External Intelligence',
-            '8. Installed Base — Axel\'s IB List',
-            '9. Project Analysis (Detailed)',
-            '10. Metallurgical & Technical Insights',
-            '11. Strategic Sales Pitch',
-            '12. Financial Analysis',
-            '13. Modular Deep-Dive Chapters',
+            '4. Customer Interactions',
+            '5. CRM Historical Performance',
+            '6. Deep Dive Analytics',
+            '7. Market Intelligence',
+            '8. Country-Level External Intelligence',
+            '9. Installed Base — Axel\'s IB List',
+            '10. Project Analysis (Detailed)',
+            '11. Metallurgical & Technical Insights',
+            '12. Strategic Sales Pitch',
+            '13. Financial Analysis',
             '14. Recent News & Developments',
             '15. References',
         ]
         for item in toc_items:
             doc.add_paragraph(item, style='List Bullet')
         doc.add_page_break()
+
+    def _normalize_export_text(self, value: str) -> str:
+        text = str(value or '').strip().lower()
+        text = ' '.join(text.split())
+        return text
+
+    def _add_unique_paragraph(self, doc: Document, value: str) -> bool:
+        normalized = self._normalize_export_text(value)
+        if not normalized or normalized in {'n/a', 'none', 'null', '{}', '[]'}:
+            return False
+        if normalized in self._export_seen_blocks:
+            return False
+        self._export_seen_blocks.add(normalized)
+        doc.add_paragraph(str(value))
+        return True
+
+    def _add_unique_heading_paragraph(self, doc: Document, heading: str, value: str, level: int = 2) -> bool:
+        if self._add_unique_paragraph(doc, value):
+            last_para = doc.paragraphs[-1]
+            paragraph_xml = last_para._p
+            body = paragraph_xml.getparent()
+            body.remove(paragraph_xml)
+            doc.add_heading(heading, level=level)
+            doc._body._element.append(paragraph_xml)
+            return True
+        return False
     
     def _add_customer_profile_section(self, doc: Document, profile_data: Dict, customer_data: Dict, charts: Dict):
         """Add restructured customer profile section"""
@@ -253,6 +281,18 @@ class EnhancedExportService:
             row.cells[0].text = label
             row.cells[1].text = str(value)
             row.cells[0].paragraphs[0].runs[0].font.bold = True
+
+        # Additional corporate sections requested by stakeholders
+        for heading, key in [
+            ('1.2.1 Corporate History & Origin', 'corporate_history'),
+            ('1.2.2 Shareholding / Capital Structure', 'capital_structure'),
+            ('1.2.3 Employees Breakdown', 'employee_breakdown'),
+            ('1.2.4 Executive Board & Management Organization', 'executive_board'),
+            ('1.2.5 Group Subsidiaries / Affiliates Overview', 'subsidiaries'),
+        ]:
+            val = basic_data.get(key, '')
+            if val:
+                self._add_unique_heading_paragraph(doc, heading, str(val), level=3)
 
         # 1.3 Plant Locations (filtered to customer primary country)
         locs = profile_data.get('locations', [])
@@ -294,7 +334,7 @@ class EnhancedExportService:
         doc.add_heading('1.5 Statistical Data Analysis', level=2)
         stat = profile_data.get('statistical_interpretations', {})
         if stat and stat.get('charts_explanation'):
-            doc.add_paragraph(str(stat.get('charts_explanation', '')))
+            self._add_unique_paragraph(doc, str(stat.get('charts_explanation', '')))
         else:
             doc.add_paragraph('Detailed distribution analysis of the installed base portfolio.')
 
@@ -302,7 +342,7 @@ class EnhancedExportService:
         if 'company_overview' in profile_data:
             doc.add_heading('Company Overview', level=2)
             overview = profile_data['company_overview']
-            doc.add_paragraph(overview.get('description', 'No description available'))
+            self._add_unique_paragraph(doc, overview.get('description', 'No description available'))
             
             if overview.get('source_url'):
                 p = doc.add_paragraph()
@@ -313,7 +353,7 @@ class EnhancedExportService:
 
     def _add_recent_news_section(self, doc: Document, profile_data: Dict):
         """Add Recent News & Developments section before references"""
-        doc.add_heading('Recent News & Developments', level=1)
+        doc.add_heading('14. Recent News & Developments', level=1)
         if 'recent_news' in profile_data:
             news_items = profile_data['recent_news']
             for idx, news in enumerate(news_items[:10], start=1):
@@ -352,49 +392,6 @@ class EnhancedExportService:
                 doc.add_paragraph()  # spacing between news items
         else:
             doc.add_paragraph('No recent news available.')
-        doc.add_page_break()
-
-    def _add_modular_deep_dive_section(self, doc: Document, profile_data: Dict):
-        """Add extended modular A-D chapters if available to increase report depth."""
-        modules = (profile_data or {}).get('modular_sections', {})
-        doc.add_heading('13. Modular Deep-Dive Chapters', level=1)
-
-        if not modules or not isinstance(modules, dict):
-            doc.add_paragraph('No modular chapter payload available for this profile generation run.')
-            doc.add_page_break()
-            return
-
-        chapter_map = [
-            ('Module A: Corporate Foundation & Strategic Intent', modules.get('module_a', {})),
-            ('Module B: Operational Footprint & Installed Base', modules.get('module_b', {})),
-            ('Module C: Market Standing & Customer Ecosystem', modules.get('module_c', {})),
-            ('Module D: Risk, Compliance & ESG', modules.get('module_d', {})),
-        ]
-
-        for title, payload in chapter_map:
-            doc.add_heading(title, level=2)
-            if not isinstance(payload, dict) or not payload:
-                doc.add_paragraph('No chapter content available.')
-                continue
-
-            for key, value in payload.items():
-                if not value:
-                    continue
-                # Skip per-module reference lists — consolidated in Section 15
-                if str(key).lower() in ('references', 'sources', 'citations'):
-                    continue
-                pretty_key = str(key).replace('_', ' ').title()
-                doc.add_heading(pretty_key, level=3)
-                if isinstance(value, dict):
-                    for k2, v2 in value.items():
-                        if v2:
-                            doc.add_paragraph(f'{str(k2).replace("_", " ").title()}: {v2}')
-                elif isinstance(value, list):
-                    for item in value[:20]:
-                        doc.add_paragraph(str(item), style='List Bullet')
-                else:
-                    doc.add_paragraph(str(value))
-
         doc.add_page_break()
 
     def _add_hyperlink(self, paragraph, text: str, url: str):
@@ -456,7 +453,7 @@ class EnhancedExportService:
     
     def _add_deep_dive_section(self, doc: Document, customer_data: Dict, charts: Dict):
         """Add deep dive analytics section"""
-        doc.add_heading('5. Deep Dive Analytics', level=1)
+        doc.add_heading('6. Deep Dive Analytics', level=1)
 
         projects_dd   = customer_data.get('projects', [])
         installed_dd  = customer_data.get('installed_base', [])
@@ -484,7 +481,7 @@ class EnhancedExportService:
     
     def _add_market_intelligence_section(self, doc: Document, market_intel: Dict):
         """Add market intelligence section"""
-        doc.add_heading('6. Market Intelligence', level=1)
+        doc.add_heading('7. Market Intelligence', level=1)
 
         sections = [
             ('Financial Health',    market_intel.get('financial_health', '')),
@@ -501,9 +498,8 @@ class EnhancedExportService:
             if isinstance(val, dict):
                 val = val.get('summary', '') or val.get('text', '') or str(val)
             if val:
-                doc.add_heading(title, level=2)
-                doc.add_paragraph(str(val))
-                any_content = True
+                added = self._add_unique_heading_paragraph(doc, title, str(val), level=2)
+                any_content = any_content or added
 
         if not any_content:
             doc.add_paragraph('Market intelligence data not available. Run profile generation to populate this section.')
@@ -513,12 +509,24 @@ class EnhancedExportService:
             for competitor in market_intel['competitors']:
                 doc.add_paragraph(competitor, style='List Bullet')
 
-        # NOTE: sources/references are consolidated in the final References section (Section 15)
+        workforce_strategy = market_intel.get('workforce_strategy', '')
+        if workforce_strategy:
+            self._add_unique_heading_paragraph(doc, 'Workforce Strategy', str(workforce_strategy), level=2)
+
+        product_portfolio = market_intel.get('product_portfolio', '')
+        if product_portfolio:
+            self._add_unique_heading_paragraph(doc, 'Products of Steel Business Unit', str(product_portfolio), level=2)
+
+        end_market_breakdown = market_intel.get('end_market_breakdown', '')
+        if end_market_breakdown:
+            self._add_unique_heading_paragraph(doc, 'Construction / Automotive-specific Market Sections', str(end_market_breakdown), level=2)
+
+        # NOTE: sources/references are consolidated in the final References section (Section 16)
         doc.add_page_break()
     
     def _add_project_section(self, doc: Document, projects: List[Dict], charts: Dict):
         """Add project analysis section"""
-        doc.add_heading('9. Project Analysis', level=1)
+        doc.add_heading('10. Project Analysis', level=1)
 
         doc.add_heading('Project Summary', level=2)
         doc.add_paragraph(f'Total Projects: {len(projects)}')
@@ -555,7 +563,7 @@ class EnhancedExportService:
     
     def _add_financial_section(self, doc: Document, financial_data: Dict, charts: Dict):
         """Add financial analysis section"""
-        doc.add_heading('12. Financial Analysis', level=1)
+        doc.add_heading('13. Financial Analysis', level=1)
 
         doc.add_heading('Cost Breakdown', level=2)
         costs = financial_data.get('cost_breakdown', {})
@@ -698,20 +706,17 @@ class EnhancedExportService:
         # company_explainer holds the deep analytical narrative
         explainer = priority.get('company_explainer', priority.get('reasoning', ''))
         if explainer:
-            doc.add_heading('Company Analysis', level=2)
-            doc.add_paragraph(str(explainer))
+            self._add_unique_heading_paragraph(doc, 'Company Analysis', str(explainer), level=2)
             
-        doc.add_heading('Key Opportunity Drivers', level=2)
-        doc.add_paragraph(str(priority.get('key_opportunity_drivers', 'N/A')))
+        self._add_unique_heading_paragraph(doc, 'Key Opportunity Drivers', str(priority.get('key_opportunity_drivers', 'N/A')), level=2)
         
-        doc.add_heading('Engagement Recommendation', level=2)
-        doc.add_paragraph(str(priority.get('engagement_recommendation', 'N/A')))
+        self._add_unique_heading_paragraph(doc, 'Engagement Recommendation', str(priority.get('engagement_recommendation', 'N/A')), level=2)
         
         doc.add_page_break()
 
     def _add_country_intelligence_section(self, doc: Document, profile_data: Dict):
         """Section 7: Country-Level External Intelligence"""
-        doc.add_heading('7. Country-Level External Intelligence', level=1)
+        doc.add_heading('8. Country-Level External Intelligence', level=1)
         ci = profile_data.get('country_intelligence', {})
         if not ci:
             doc.add_paragraph('No country-level intelligence available.')
@@ -729,8 +734,7 @@ class EnhancedExportService:
         for title, key in fields:
             val = ci.get(key, 'N/A')
             if val and val != 'N/A':
-                doc.add_heading(title, level=2)
-                doc.add_paragraph(str(val))
+                self._add_unique_heading_paragraph(doc, title, str(val), level=2)
         
         doc.add_page_break()
 
@@ -742,28 +746,46 @@ class EnhancedExportService:
 
         doc.add_heading('Sales Relationship Summary', level=2)
         for label, key in [
-            ('CRM Rating',          'crm_rating'),
-            ('SMS Relationship',    'sms_relationship'),
-            ('Key Contact Person',  'key_person'),
-            ('Latest Visits',       'latest_visits'),
+            ('CRM Rating', 'crm_rating'),
+            ('SMS Relationship', 'sms_relationship'),
+            ('Key Contact Person', 'key_person'),
+            ('Latest Visits', 'latest_visits'),
         ]:
             val = history.get(key, '')
             if val:
                 doc.add_paragraph(f'{label}: {val}')
 
+        # Existing SMS installations
+        sms_hist = history.get('sms_delivery_history', '')
+        if sms_hist:
+            self._add_unique_heading_paragraph(doc, 'Existing Facilities of SMS Group (History)', str(sms_hist), level=2)
+
         doc.add_heading('Project Track Record', level=2)
         for label, key in [
-            ('Latest Projects',   'latest_projects'),
+            ('Latest Projects', 'latest_projects'),
             ('Realized Projects', 'realized_projects'),
         ]:
             val = history.get(key, '')
             if val:
-                doc.add_heading(label, level=3)
-                doc.add_paragraph(str(val))
+                self._add_unique_heading_paragraph(doc, label, str(val), level=3)
+
+        # New project sections from Thomas's feedback
+        for section_title, history_key in [
+            ('Current Projects (Active Opportunities)', 'current_projects_detail'),
+            ('Projects Under Execution', 'projects_under_execution'),
+            ('Lost Projects', 'lost_projects'),
+        ]:
+            val = history.get(history_key, '')
+            if val:
+                self._add_unique_heading_paragraph(doc, section_title, str(val), level=2)
+
+        announced = (profile_data.get('market_intelligence') or {}).get('announced_investments', '')
+        if announced:
+            self._add_unique_heading_paragraph(doc, 'Announced Investments (News)', str(announced), level=2)
 
         doc.add_heading('Market Context', level=2)
         end_cust = context.get('end_customer', '')
-        mkt_pos  = context.get('market_position', '')
+        mkt_pos = context.get('market_position', '')
         if end_cust:
             doc.add_paragraph(f'End Customer / Supply Chain: {end_cust}')
         if mkt_pos:
@@ -771,9 +793,60 @@ class EnhancedExportService:
 
         doc.add_page_break()
 
+    def _add_customer_interactions_section(self, doc: Document, profile_data: Dict):
+        """Section 4: Customer interaction timeline."""
+        doc.add_heading('4. Customer Interactions', level=1)
+        summary = (profile_data or {}).get('customer_interaction_summary', {}) or {}
+        interactions = (profile_data or {}).get('customer_interactions', []) or []
+
+        if summary:
+            doc.add_heading('Interaction Summary', level=2)
+            table = doc.add_table(rows=0, cols=2)
+            table.style = 'Light Grid Accent 1'
+            for label, value in [
+                ('Total Interactions', summary.get('total_interactions', 0)),
+                ('Last Contact Date', summary.get('last_contact_date', 'N/A')),
+                ('Last Contact Location', summary.get('last_contact_location', 'N/A')),
+                ('Last Contact By', summary.get('last_contact_owner', 'N/A')),
+                ('Last Contact Subject', summary.get('last_contact_subject', 'N/A')),
+                ('Main Channels', ', '.join(summary.get('top_channels', [])) or 'N/A'),
+                ('Main SMS Contacts', ', '.join(summary.get('top_contacts', [])) or 'N/A'),
+            ]:
+                row = table.add_row()
+                row.cells[0].text = str(label)
+                row.cells[1].text = str(value)
+                if row.cells[0].paragraphs[0].runs:
+                    row.cells[0].paragraphs[0].runs[0].font.bold = True
+
+        if interactions:
+            doc.add_heading('Recent Interaction Timeline', level=2)
+            table = doc.add_table(rows=0, cols=5)
+            table.style = 'Light Grid Accent 1'
+            hdr = table.add_row()
+            for idx, heading in enumerate(['Date', 'Channel / Location', 'Responsible', 'Account', 'Subject']):
+                hdr.cells[idx].text = heading
+                if hdr.cells[idx].paragraphs[0].runs:
+                    hdr.cells[idx].paragraphs[0].runs[0].font.bold = True
+            for item in interactions[:12]:
+                row = table.add_row()
+                start_date = str(item.get('start_dt', '') or '')[:10]
+                channel_bits = [
+                    str(item.get('distribution_channel', '') or '').strip(),
+                    str(item.get('meeting_location', '') or '').strip(),
+                ]
+                row.cells[0].text = start_date
+                row.cells[1].text = ' | '.join(bit for bit in channel_bits if bit)
+                row.cells[2].text = str(item.get('employee_responsible', '') or '')
+                row.cells[3].text = str(item.get('account', '') or '')
+                row.cells[4].text = str(item.get('subject', '') or '')
+        else:
+            doc.add_paragraph('No recent customer interactions available in the SAP Sales Cloud visit export.')
+
+        doc.add_page_break()
+
     def _add_historical_crm_section(self, doc: Document, crm_history: Optional[Dict], customer_name: str):
-        """Section 4: CRM Historical Performance — yearly pipeline breakdown."""
-        doc.add_heading('4. CRM Historical Performance', level=1)
+        """Section 5: CRM historical performance and project overview."""
+        doc.add_heading('5. CRM Historical Performance', level=1)
         doc.add_heading('Annual Pipeline & Win Rate (Axel\'s CRM Export)', level=2)
 
         if not crm_history:
@@ -781,7 +854,20 @@ class EnhancedExportService:
             doc.add_page_break()
             return
 
-        # Sources are intentionally consolidated in the final References section.
+        metrics = crm_history.get('metrics', {}) if isinstance(crm_history.get('metrics', {}), dict) else {}
+        overview = doc.add_table(rows=0, cols=2)
+        overview.style = 'Light Grid Accent 1'
+        for label, value in [
+            ('Total Projects', metrics.get('n_projects', 'N/A')),
+            ('Total Won Value (EUR)', f"EUR {float(metrics.get('total_won_value', 0) or 0):,.0f}"),
+            ('Overall Win Rate (%)', f"{float(metrics.get('win_rate', 0) or 0):.1f}%"),
+            ('Years Covered', metrics.get('time_span', 'N/A')),
+        ]:
+            row = overview.add_row()
+            row.cells[0].text = str(label)
+            row.cells[1].text = str(value)
+            if row.cells[0].paragraphs[0].runs:
+                row.cells[0].paragraphs[0].runs[0].font.bold = True
 
         yearly_df = crm_history.get('yearly_df')
         if yearly_df is not None and not yearly_df.empty:
@@ -806,13 +892,33 @@ class EnhancedExportService:
                 row = table.add_row()
                 for j, cell_value in enumerate(row_data):
                     row.cells[j].text = str(cell_value)
-                    if i == 0:
-                        if row.cells[j].paragraphs[0].runs:
-                            row.cells[j].paragraphs[0].runs[0].font.bold = True
+                    if i == 0 and row.cells[j].paragraphs[0].runs:
+                        row.cells[j].paragraphs[0].runs[0].font.bold = True
+
+        raw_projects = crm_history.get('raw_projects')
+        if raw_projects is not None and not raw_projects.empty:
+            active_mask = raw_projects['_status'].astype(str).str.lower().str.contains('active|progress|execution|negotiation|offer|proposal|budget', na=False)
+            active_projects = raw_projects[active_mask].head(12)
+            if not active_projects.empty:
+                doc.add_heading('Current Projects / Projects Under Execution', level=3)
+                show_cols = [c for c in ['account_name', 'customer_project', '_status', '_value', '_year', 'sp_coe'] if c in active_projects.columns]
+                if show_cols:
+                    table = doc.add_table(rows=0, cols=len(show_cols))
+                    table.style = 'Light Grid Accent 1'
+                    hdr = table.add_row()
+                    for idx, col in enumerate(show_cols):
+                        hdr.cells[idx].text = col.replace('_', ' ').title()
+                        if hdr.cells[idx].paragraphs[0].runs:
+                            hdr.cells[idx].paragraphs[0].runs[0].font.bold = True
+                    for _, dr in active_projects.iterrows():
+                        row = table.add_row()
+                        for idx, col in enumerate(show_cols):
+                            val = dr.get(col, '')
+                            row.cells[idx].text = f"EUR {float(val):,.0f}" if col == '_value' and str(val) not in ('', 'nan') else str(val) if val is not None else ''
 
         won_list = crm_history.get('won_list')
         if won_list is not None and not won_list.empty:
-            doc.add_heading('Won Projects Detail', level=3)
+            doc.add_heading('Existing SMS Facilities / Won Projects History', level=3)
             show_cols = [c for c in [
                 'account_name', 'codeword_sales', 'customer_project',
                 'cp_expected_value_eur', '_year', 'account_country', 'sp_coe',
@@ -820,40 +926,56 @@ class EnhancedExportService:
             if show_cols:
                 won_sub = won_list[show_cols].head(20)
                 hdr = [c.replace('_', ' ').title() for c in show_cols]
-                cols_n = len(show_cols)
-                t = doc.add_table(rows=0, cols=cols_n)
-                t.style = 'Light Grid Accent 1'
-                hdr_row = t.add_row()
+                table = doc.add_table(rows=0, cols=len(show_cols))
+                table.style = 'Light Grid Accent 1'
+                hdr_row = table.add_row()
                 for j, h in enumerate(hdr):
                     hdr_row.cells[j].text = h
                     if hdr_row.cells[j].paragraphs[0].runs:
                         hdr_row.cells[j].paragraphs[0].runs[0].font.bold = True
                 for _, dr in won_sub.iterrows():
-                    drow = t.add_row()
+                    drow = table.add_row()
                     for j, col in enumerate(show_cols):
                         val = dr.get(col, '')
-                        drow.cells[j].text = str(val) if val is not None else ''
+                        drow.cells[j].text = f"EUR {float(val):,.0f}" if col == 'cp_expected_value_eur' and str(val) not in ('', 'nan') else str(val) if val is not None else ''
+
+        lost_list = crm_history.get('lost_list')
+        if lost_list is not None and not lost_list.empty:
+            doc.add_heading('Lost / Non-Won Projects', level=3)
+            show_cols = [c for c in ['account_name', 'customer_project', '_status', '_value', '_year'] if c in lost_list.columns]
+            if show_cols:
+                subset = lost_list[show_cols].head(12)
+                table = doc.add_table(rows=0, cols=len(show_cols))
+                table.style = 'Light Grid Accent 1'
+                hdr = table.add_row()
+                for idx, col in enumerate(show_cols):
+                    hdr.cells[idx].text = col.replace('_', ' ').title()
+                    if hdr.cells[idx].paragraphs[0].runs:
+                        hdr.cells[idx].paragraphs[0].runs[0].font.bold = True
+                for _, dr in subset.iterrows():
+                    row = table.add_row()
+                    for idx, col in enumerate(show_cols):
+                        val = dr.get(col, '')
+                        row.cells[idx].text = f"EUR {float(val):,.0f}" if col == '_value' and str(val) not in ('', 'nan') else str(val) if val is not None else ''
 
         doc.add_page_break()
 
     def _add_installed_base_section(self, doc: Document, ib_data: Optional[Dict], customer_name: str):
-        """Section 8: Installed Base — Axel's IB List."""
-        doc.add_heading('8. Installed Base (Axel\'s IB List)', level=1)
+        """Section 9: Structured installed-base summary."""
+        doc.add_heading('9. Installed Base (Axel\'s IB List)', level=1)
 
         if not ib_data or ib_data.get('n_units', 0) == 0:
             doc.add_paragraph('No installed base records found for this customer in the IB list.')
             doc.add_page_break()
             return
 
-        # Sources are intentionally consolidated in the final References section.
-
         doc.add_heading('IB Summary', level=2)
         table = doc.add_table(rows=0, cols=2)
         table.style = 'Light Grid Accent 1'
         for label, val in [
-            ('Equipment Units (IB List)',     str(ib_data.get('n_units', 0))),
+            ('Equipment Units (IB List)', str(ib_data.get('n_units', 0))),
             ('Average Age (years)', str(ib_data.get('avg_age', 'N/A'))),
-            ('Equipment Types',     ', '.join(str(t) for t in ib_data.get('equipment_types', [])) or 'N/A'),
+            ('Equipment Types', ', '.join(str(t) for t in ib_data.get('equipment_types', [])) or 'N/A'),
             ('Countries / Regions', ', '.join(str(c) for c in ib_data.get('countries', [])) or 'N/A'),
         ]:
             row = table.add_row()
@@ -864,68 +986,99 @@ class EnhancedExportService:
 
         df_ib = ib_data.get('df')
         if df_ib is not None and not df_ib.empty:
-            doc.add_heading('Equipment Records (top 30)', level=2)
-            display_cols = [c for c in [
-                'ib_machine', 'ib_description', 'ib_product',
-                'ib_city', 'ib_customer_country', 'ib_startup', '_age', 'ib_status',
-            ] if c in df_ib.columns]
-            if display_cols:
-                subset = df_ib[display_cols].head(30)
-                hdr = [c.replace('ib_', '').replace('_', ' ').title() for c in display_cols]
-                t = doc.add_table(rows=0, cols=len(display_cols))
-                t.style = 'Light List'
-                hdr_row = t.add_row()
-                for j, h in enumerate(hdr):
-                    hdr_row.cells[j].text = h
-                    if hdr_row.cells[j].paragraphs[0].runs:
-                        hdr_row.cells[j].paragraphs[0].runs[0].font.bold = True
-                for _, dr in subset.iterrows():
-                    drow = t.add_row()
-                    for j, col in enumerate(display_cols):
-                        val = dr.get(col, '')
-                        drow.cells[j].text = str(val) if val is not None and str(val) != 'nan' else ''
+            doc.add_heading('Structured Installed Base Overview (top 30)', level=2)
+            company_col = next((c for c in ['Company', 'Parent Company', 'ib_customer', 'account_name', 'customer'] if c in df_ib.columns), None)
+            site_col = ib_data.get('city_col') or next((c for c in ['City', 'Technical Location', 'ib_city', 'site_name', 'city'] if c in df_ib.columns), None)
+            equipment_col = ib_data.get('prod_col') or next((c for c in ['Type of Plant', 'Installed Base', 'ib_machine', 'ib_description', 'ib_product', 'equipment'] if c in df_ib.columns), None)
+            capacity_col = next((c for c in ['Nominat Capacity [t/y]', 'Nominal Capacity', 'capacity', 'capacity_internal'] if c in df_ib.columns), None)
+            year_col = ib_data.get('year_col') or next((c for c in ['Year of Start Up', 'Date Start-up', 'ib_startup', 'start_year', 'installation_year', '_year'] if c in df_ib.columns), None)
+
+            display_rows = []
+            subset = df_ib.head(30)
+            for _, dr in subset.iterrows():
+                year_value = dr.get(year_col, '') if year_col else ''
+                age_value = dr.get('_age', '')
+                if str(year_value) not in ('', 'nan', 'NaT') and str(age_value) not in ('', 'nan'):
+                    year_age = f"{year_value} / {int(float(age_value))}y"
+                elif str(year_value) not in ('', 'nan', 'NaT'):
+                    year_age = str(year_value)
+                else:
+                    year_age = ''
+                display_rows.append([
+                    str(dr.get(company_col, customer_name)) if company_col else customer_name,
+                    str(dr.get(site_col, '')) if site_col else '',
+                    str(dr.get(equipment_col, '')) if equipment_col else '',
+                    str(dr.get(capacity_col, '')) if capacity_col else '',
+                    year_age,
+                ])
+
+            table = doc.add_table(rows=0, cols=5)
+            table.style = 'Light List'
+            hdr = table.add_row()
+            for idx, heading in enumerate(['Company', 'Site', 'Equipment', 'Capacity', 'Year of Start-Up / Age']):
+                hdr.cells[idx].text = heading
+                if hdr.cells[idx].paragraphs[0].runs:
+                    hdr.cells[idx].paragraphs[0].runs[0].font.bold = True
+            for display_row in display_rows:
+                row = table.add_row()
+                for idx, value in enumerate(display_row):
+                    row.cells[idx].text = '' if value in ('nan', 'None') else str(value)
 
         doc.add_page_break()
 
     def _add_metallurgical_section(self, doc: Document, profile_data: Dict):
-        """Section 10: Metallurgical & Technical Insights"""
-        doc.add_heading('10. Metallurgical & Technical Insights', level=1)
+        """Section 11: Metallurgical & Technical Insights"""
+        doc.add_heading('11. Metallurgical & Technical Insights', level=1)
         meta = (profile_data or {}).get('metallurgical_insights', {})
         if not meta:
             doc.add_paragraph('No metallurgical insights available. Generate a profile first.')
             doc.add_page_break()
             return
         for label, key in [
-            ('Process Efficiency',           'process_efficiency'),
-            ('Carbon Footprint / Green Steel','carbon_footprint_strategy'),
-            ('Modernization Potential',       'modernization_potential'),
-            ('Technical Bottlenecks',         'technical_bottlenecks'),
+            ('Process Efficiency', 'process_efficiency'),
+            ('Carbon Footprint / Green Steel', 'carbon_footprint_strategy'),
+            ('Modernization Potential', 'modernization_potential'),
+            ('Technical Bottlenecks', 'technical_bottlenecks'),
         ]:
             val = meta.get(key, '')
             if val:
-                doc.add_heading(label, level=2)
-                doc.add_paragraph(str(val))
+                self._add_unique_heading_paragraph(doc, label, str(val), level=2)
         doc.add_page_break()
 
     def _add_sales_strategy_section(self, doc: Document, profile_data: Dict):
-        """Section 11: Strategic Sales Pitch"""
-        doc.add_heading('11. Strategic Sales Pitch', level=1)
+        """Section 12: Strategic Sales Pitch"""
+        doc.add_heading('12. Strategic Sales Pitch', level=1)
         strat = (profile_data or {}).get('sales_strategy', {})
+        market = (profile_data or {}).get('market_intelligence', {})
         if not strat:
             doc.add_paragraph('No sales strategy available. Generate a profile first.')
             doc.add_page_break()
             return
+
+        # Added per Thomas feedback: explicit commercial structure and product context
+        if strat.get('sms_commercial_structure'):
+            self._add_unique_heading_paragraph(doc, 'Commercial Sales SMS group - Sales Structure', str(strat.get('sms_commercial_structure')), level=2)
+
+        if strat.get('buying_center_map'):
+            self._add_unique_heading_paragraph(doc, 'Buying Center Map', str(strat.get('buying_center_map')), level=2)
+
+        if market.get('product_portfolio'):
+            self._add_unique_heading_paragraph(doc, 'Products of Steel Business Unit', str(market.get('product_portfolio')), level=2)
+
+        if market.get('end_market_breakdown'):
+            self._add_unique_heading_paragraph(doc, 'Construction / Automotive-specific Market Sections', str(market.get('end_market_breakdown')), level=2)
         for label, key in [
-            ('Recommended Portfolio',  'recommended_portfolio'),
-            ('Value Proposition',      'value_proposition'),
-            ('Competitive Landscape',  'competitive_landscape'),
-            ('Suggested Next Steps',   'suggested_next_steps'),
+            ('Recommended Portfolio', 'recommended_portfolio'),
+            ('Value Proposition', 'value_proposition'),
+            ('Competitive Landscape', 'competitive_landscape'),
+            ('Suggested Next Steps', 'suggested_next_steps'),
         ]:
             val = strat.get(key, '')
             if val:
-                doc.add_heading(label, level=2)
-                doc.add_paragraph(str(val))
-        # Fallback: if none of the sub-keys matched (compact profile stores everything under value_proposition)
+                self._add_unique_heading_paragraph(doc, label, str(val), level=2)
+
+        if strat.get('compliance_guidance'):
+            self._add_unique_heading_paragraph(doc, 'Compliance Implications For SMS', str(strat.get('compliance_guidance')), level=2)
         if not any(strat.get(k) for k in ('recommended_portfolio', 'value_proposition', 'competitive_landscape', 'suggested_next_steps')):
             raw = str(strat)
             if raw and raw != '{}':
@@ -1257,11 +1410,16 @@ class EnhancedExportService:
             spaceAfter=4, fontName='Helvetica-Oblique'
         ))
 
+        seen_blocks = set()
+
         def _s(val):
             """Safe HTML-escaped string for ReportLab paragraphs."""
             if val is None:
                 return 'N/A'
             return str(val).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br/>')
+
+        def _norm(val):
+            return ' '.join(str(val or '').strip().lower().split())
 
         def section_heading(number: str, title: str):
             elements.append(PageBreak())
@@ -1281,6 +1439,10 @@ class EnhancedExportService:
             if not text or not str(text).strip() or str(text).strip() in ('N/A', 'None', '{}'):
                 return
             raw = str(text).strip()
+            normalized = _norm(raw)
+            if not normalized or normalized in seen_blocks:
+                return
+            seen_blocks.add(normalized)
             lines = raw.split('\n')
             list_pat = _re.compile(r'^\s*(\d+[.)]\s+|[•\-\*]\s+)')
             list_lines = [l for l in lines if list_pat.match(l)]
@@ -1379,16 +1541,16 @@ class EnhancedExportService:
             "1. Customer Profile",
             "2. Priority Ranking Analysis",
             "3. Project History & Sales Relationship",
-            "4. CRM Historical Performance",
-            "5. Deep Dive Analytics",
-            "6. Market Intelligence",
-            "7. Country-Level Intelligence",
-            "8. Installed Base Summary",
-            "9. Project Analysis",
-            "10. Metallurgical & Technical Insights",
-            "11. Strategic Sales Pitch",
-            "12. Financial Analysis",
-            "13. Modular Deep-Dive Chapters",
+            "4. Customer Interactions",
+            "5. CRM Historical Performance",
+            "6. Deep Dive Analytics",
+            "7. Market Intelligence",
+            "8. Country-Level Intelligence",
+            "9. Installed Base Summary",
+            "10. Project Analysis",
+            "11. Metallurgical & Technical Insights",
+            "12. Strategic Sales Pitch",
+            "13. Financial Analysis",
             "14. Recent News & Developments",
             "15. References",
         ]
@@ -1415,6 +1577,17 @@ class EnhancedExportService:
             ["Financial Status",_s(basic.get('financials'))],
             ["Ownership History",_s(basic.get('ownership_history'))],
         ])
+        for title, key in [
+            ("1.2.1 Corporate History & Origin", 'corporate_history'),
+            ("1.2.2 Shareholding / Capital Structure", 'capital_structure'),
+            ("1.2.3 Employees Breakdown", 'employee_breakdown'),
+            ("1.2.4 Executive Board & Management Organization", 'executive_board'),
+            ("1.2.5 Group Subsidiaries / Affiliates Overview", 'subsidiaries'),
+        ]:
+            val = basic.get(key, '')
+            if val:
+                sub_heading(title)
+                body_para(val)
 
         # Locations detail table
         # Locations detail table — filtered to customer's primary country
@@ -1486,6 +1659,20 @@ class EnhancedExportService:
             if val:
                 sub_heading(label)
                 body_para(val)
+        for key, label in [
+            ('sms_delivery_history', 'Existing Facilities of SMS Group (History)'),
+            ('current_projects_detail', 'Current Projects (Active Opportunities)'),
+            ('projects_under_execution', 'Projects Under Execution'),
+            ('lost_projects', 'Lost Projects'),
+        ]:
+            val = history.get(key, '')
+            if val:
+                sub_heading(label)
+                body_para(val)
+        announced = (profile_data.get('market_intelligence') or {}).get('announced_investments', '')
+        if announced:
+            sub_heading('Announced Investments (News)')
+            body_para(announced)
         if context_pd.get('end_customer'):
             sub_heading("End Customer / Supply Chain")
             body_para(context_pd['end_customer'])
@@ -1493,8 +1680,41 @@ class EnhancedExportService:
             sub_heading("Market Position")
             body_para(context_pd['market_position'])
 
-        # ── SECTION 4: CRM HISTORICAL PERFORMANCE ────────────────────────────
-        section_heading("4", "CRM Historical Performance")
+        # ── SECTION 4: CUSTOMER INTERACTIONS ─────────────────────────────────
+        section_heading("4", "Customer Interactions")
+        interaction_summary = profile_data.get('customer_interaction_summary', {}) or {}
+        interactions = profile_data.get('customer_interactions', []) or []
+        if interaction_summary:
+            kv_table([
+                ["Total Interactions", _s(interaction_summary.get('total_interactions', 0))],
+                ["Last Contact Date", _s(interaction_summary.get('last_contact_date'))],
+                ["Last Contact Location", _s(interaction_summary.get('last_contact_location'))],
+                ["Last Contact Owner", _s(interaction_summary.get('last_contact_owner'))],
+                ["Last Contact Subject", _s(interaction_summary.get('last_contact_subject'))],
+                ["Main Channels", _s(', '.join(interaction_summary.get('top_channels', [])) or 'N/A')],
+                ["Main SMS Contacts", _s(', '.join(interaction_summary.get('top_contacts', [])) or 'N/A')],
+            ])
+        if interactions:
+            rows = []
+            for item in interactions[:12]:
+                rows.append([
+                    _s(str(item.get('start_dt', '') or '')[:10]),
+                    _s(item.get('account', '')),
+                    _s(' | '.join([x for x in [item.get('distribution_channel', ''), item.get('meeting_location', '')] if x])),
+                    _s(item.get('employee_responsible', '')),
+                    _s(item.get('subject', '')),
+                ])
+            sub_heading("Recent Interaction Timeline")
+            data_table(
+                ["Date", "Account", "Channel / Location", "Responsible", "Subject"],
+                rows,
+                col_widths=[0.9*inch, 1.5*inch, 1.6*inch, 1.2*inch, 1.4*inch],
+            )
+        elif not interaction_summary:
+            body_para("No recent customer interactions available in the SAP Sales Cloud visit export.")
+
+        # ── SECTION 5: CRM HISTORICAL PERFORMANCE ────────────────────────────
+        section_heading("5", "CRM Historical Performance")
         if crm_history:
             src = crm_history.get('source', '')
             if src:
@@ -1539,8 +1759,8 @@ class EnhancedExportService:
         else:
             body_para("No CRM historical data available for this customer.")
 
-        # ── SECTION 5: DEEP DIVE ANALYTICS ───────────────────────────────────
-        section_heading("5", "Deep Dive Analytics")
+        # ── SECTION 6: DEEP DIVE ANALYTICS ───────────────────────────────────
+        section_heading("6", "Deep Dive Analytics")
         proj_dd = customer_data.get('projects', []) or []
         inst_dd = customer_data.get('installed_base', []) or []
         total_rev = sum(p.get('value', 0) or 0 for p in proj_dd)
@@ -1558,8 +1778,8 @@ class EnhancedExportService:
             eq_rows = [[eq, str(cnt)] for eq, cnt in eq_counter.most_common(20)]
             data_table(["Equipment Type", "Count"], eq_rows, col_widths=[4.5*inch, 2.1*inch])
 
-        # ── SECTION 6: MARKET INTELLIGENCE ───────────────────────────────────
-        section_heading("6", "Market Intelligence")
+        # ── SECTION 7: MARKET INTELLIGENCE ───────────────────────────────────
+        section_heading("7", "Market Intelligence")
         if market_intel:
             for title, key in [
                 ("Financial Health",    'financial_health'),
@@ -1580,11 +1800,20 @@ class EnhancedExportService:
                 sub_heading("Key Competitors")
                 for comp in market_intel['competitors']:
                     elements.append(Paragraph(f"• {_s(comp)}", styles['RptBullet']))
+            for title, key in [
+                ("Workforce Strategy", 'workforce_strategy'),
+                ("Products of Steel Business Unit", 'product_portfolio'),
+                ("Construction / Automotive-specific Market Sections", 'end_market_breakdown'),
+            ]:
+                val = market_intel.get(key, '')
+                if val:
+                    sub_heading(title)
+                    body_para(val)
         else:
             body_para("Market intelligence data not available. Generate or refresh the customer profile to populate this section.")
 
-        # ── SECTION 7: COUNTRY-LEVEL INTELLIGENCE ────────────────────────────
-        section_heading("7", "Country-Level Intelligence")
+        # ── SECTION 8: COUNTRY-LEVEL INTELLIGENCE ────────────────────────────
+        section_heading("8", "Country-Level Intelligence")
         ci = profile_data.get('country_intelligence', {})
         if ci:
             for title, key in [
@@ -1601,8 +1830,8 @@ class EnhancedExportService:
         else:
             body_para("Country intelligence data not available.")
 
-        # ── SECTION 8: INSTALLED BASE SUMMARY ────────────────────────────────
-        section_heading("8", "Installed Base Summary")
+        # ── SECTION 9: INSTALLED BASE SUMMARY ────────────────────────────────
+        section_heading("9", "Installed Base Summary")
         if ib_data and ib_data.get('n_units', 0) > 0:
             kv_table([
                 ["Equipment Units (IB List)",      str(ib_data.get('n_units', 0))],
@@ -1628,8 +1857,8 @@ class EnhancedExportService:
         else:
             body_para("No installed base records found for this customer.")
 
-        # ── SECTION 9: PROJECT ANALYSIS ───────────────────────────────────────
-        section_heading("9", "Project Analysis")
+        # ── SECTION 10: PROJECT ANALYSIS ──────────────────────────────────────
+        section_heading("10", "Project Analysis")
         if proj_dd:
             active_c = sum(1 for p in proj_dd if p.get('status') in ('Active', 'In Progress'))
             won_c = sum(1 for p in proj_dd if p.get('status') in ('Completed', 'Won'))
@@ -1657,8 +1886,8 @@ class EnhancedExportService:
         else:
             body_para("No detailed project records available for this customer.")
 
-        # ── SECTION 10: METALLURGICAL INSIGHTS ───────────────────────────────
-        section_heading("10", "Metallurgical & Technical Insights")
+        # ── SECTION 11: METALLURGICAL INSIGHTS ───────────────────────────────
+        section_heading("11", "Metallurgical & Technical Insights")
         meta = profile_data.get('metallurgical_insights', {})
         if meta:
             for label, key in [
@@ -1674,10 +1903,18 @@ class EnhancedExportService:
         else:
             body_para("No metallurgical insights available. Generate a profile first.")
 
-        # ── SECTION 11: STRATEGIC SALES PITCH ────────────────────────────────
-        section_heading("11", "Strategic Sales Pitch")
+        # ── SECTION 12: STRATEGIC SALES PITCH ────────────────────────────────
+        section_heading("12", "Strategic Sales Pitch")
         strat = profile_data.get('sales_strategy', {})
         if strat:
+            for label, key in [
+                ("Commercial Sales SMS group - Sales Structure", 'sms_commercial_structure'),
+                ("Buying Center Map", 'buying_center_map'),
+            ]:
+                val = strat.get(key, '')
+                if val:
+                    sub_heading(label)
+                    body_para(val)
             for label, key in [
                 ("Recommended Portfolio",  'recommended_portfolio'),
                 ("Value Proposition",      'value_proposition'),
@@ -1688,13 +1925,16 @@ class EnhancedExportService:
                 if val:
                     sub_heading(label)
                     body_para(val)
+            if strat.get('compliance_guidance'):
+                sub_heading('Compliance Implications For SMS')
+                body_para(strat.get('compliance_guidance'))
             if not any(strat.get(k) for k in ('recommended_portfolio', 'value_proposition', 'competitive_landscape', 'suggested_next_steps')):
                 body_para(str(strat))
         else:
             body_para("No sales strategy available. Generate a profile first.")
 
-        # ── SECTION 12: FINANCIAL ANALYSIS ───────────────────────────────────
-        section_heading("12", "Financial Analysis")
+        # ── SECTION 13: FINANCIAL ANALYSIS ───────────────────────────────────
+        section_heading("13", "Financial Analysis")
         if financial_data:
             costs = financial_data.get('cost_breakdown', {})
             if costs:
@@ -1712,38 +1952,6 @@ class EnhancedExportService:
                 ])
         else:
             body_para("Detailed financial data not separately loaded. See financial commentary in Sections 2 and 6.")
-
-        # ── SECTION 13: MODULAR DEEP-DIVE CHAPTERS ──────────────────────────
-        section_heading("13", "Modular Deep-Dive Chapters")
-        modules = profile_data.get('modular_sections', {}) if isinstance(profile_data, dict) else {}
-        if modules and isinstance(modules, dict):
-            for mod_title, mod_key in [
-                ("Module A: Corporate Foundation & Strategic Intent", 'module_a'),
-                ("Module B: Operational Footprint & Installed Base", 'module_b'),
-                ("Module C: Market Standing & Customer Ecosystem", 'module_c'),
-                ("Module D: Risk, Compliance & ESG", 'module_d'),
-            ]:
-                payload = modules.get(mod_key, {})
-                if not payload or not isinstance(payload, dict):
-                    continue
-                sub_heading(mod_title)
-                for key, value in payload.items():
-                    if not value:
-                        continue
-                    if str(key).lower() in ('references', 'sources', 'citations'):
-                        continue
-                    sub_heading(str(key).replace('_', ' ').title())
-                    if isinstance(value, dict):
-                        for k2, v2 in value.items():
-                            if v2:
-                                body_para(f"{str(k2).replace('_', ' ').title()}: {v2}")
-                    elif isinstance(value, list):
-                        for item in value[:20]:
-                            elements.append(Paragraph(f"• {_s(item)}", styles['RptBullet']))
-                    else:
-                        body_para(str(value))
-        else:
-            body_para("No modular chapter payload available for this profile generation run.")
 
         # ── SECTION 14: RECENT NEWS & DEVELOPMENTS ───────────────────────────
         section_heading("14", "Recent News & Developments")

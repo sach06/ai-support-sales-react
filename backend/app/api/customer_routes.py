@@ -14,6 +14,7 @@ from app.services.data_service import data_service
 from app.services.profile_generator import profile_generator
 from app.services.financial_service import financial_service
 import app.services.historical_service as historical_service
+from app.services.interaction_service import interaction_service
 from app.services.web_enrichment_service import web_enrichment_service
 from app.services.internal_knowledge_service import internal_knowledge_service
 from app.utils.json_utils import df_to_json_safe, json_safe_sanitize
@@ -37,32 +38,49 @@ def get_customer_profile(
 ):
     """Fetch all available raw data for a specific customer before AI generation."""
     try:
+        selection_scope = data_service.resolve_company_selection(
+            customer_name,
+            country=country,
+            region=region,
+            equipment_type=equipment_type,
+        )
         df = data_service.get_customer_list(company_name=customer_name)
         if df.empty:
             raise HTTPException(status_code=404, detail="Customer not found in CRM/BCG data.")
             
         crm_data = df.iloc[0].to_dict()
+        if selection_scope.get('selection_type') == 'group':
+            countries = sorted({str(v).strip() for v in df.get('country', pd.Series(dtype=str)).fillna('') if str(v).strip()})
+            regions = sorted({str(v).strip() for v in df.get('region', pd.Series(dtype=str)).fillna('') if str(v).strip()})
+            crm_data['name'] = selection_scope.get('display_name') or customer_name
+            crm_data['member_companies'] = selection_scope.get('company_names', [])
+            crm_data['member_count'] = len(selection_scope.get('company_names', []))
+            crm_data['country'] = countries[0] if len(countries) == 1 else ('Multi-country' if countries else crm_data.get('country'))
+            crm_data['region'] = regions[0] if len(regions) == 1 else ('Multi-region' if regions else crm_data.get('region'))
         
         # We need the correct CRM name or BCG name to get the sub-data
-        actual_name = crm_data.get('name') or customer_name
+        actual_name = selection_scope.get('display_name') or crm_data.get('name') or customer_name
         
         installed_data = data_service.get_detailed_plant_data(
-            company_name=actual_name,
+            company_name=customer_name,
             country=country,
             region=region,
             equipment_type=equipment_type
         )
         fin_history = financial_service.get_financial_history(actual_name)
         balances = financial_service.get_latest_balance_sheet(actual_name)
-        history = historical_service.get_yearly_performance(actual_name)
+        history = historical_service.get_yearly_performance(customer_name)
+        interactions = interaction_service.get_customer_interactions(customer_name)
         
         return {
             "customer_name": actual_name,
+            "customer_scope": _safe_json(selection_scope),
             "crm_data": _safe_json(crm_data),
             "installed_base": _safe_json(installed_data) if not installed_data.empty else [],
             "financial_history": fin_history,
             "balance_sheet": balances,
-            "project_history": _safe_json(history)
+            "project_history": _safe_json(history),
+            "customer_interactions": _safe_json(interactions),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -76,20 +94,31 @@ def test_customer_profile(customer_name: str = URLPath(...)):
 def generate_steckbrief(customer_name: str = URLPath(...)):
     """Invoke the GPT-4o Agent to generate a comprehensive structured profile."""
     try:
+        selection_scope = data_service.resolve_company_selection(customer_name)
         # Re-fetch data just like original app did
         df = data_service.get_customer_list(company_name=customer_name)
         if df.empty:
             raise HTTPException(status_code=404, detail="Customer not found")
         
         crm_data = df.iloc[0].to_dict()
-        actual_name = crm_data.get('name') or customer_name
+        if selection_scope.get('selection_type') == 'group':
+            countries = sorted({str(v).strip() for v in df.get('country', pd.Series(dtype=str)).fillna('') if str(v).strip()})
+            regions = sorted({str(v).strip() for v in df.get('region', pd.Series(dtype=str)).fillna('') if str(v).strip()})
+            crm_data['name'] = selection_scope.get('display_name') or customer_name
+            crm_data['member_companies'] = selection_scope.get('company_names', [])
+            crm_data['member_count'] = len(selection_scope.get('company_names', []))
+            crm_data['country'] = countries[0] if len(countries) == 1 else ('Multi-country' if countries else crm_data.get('country'))
+            crm_data['region'] = regions[0] if len(regions) == 1 else ('Multi-region' if regions else crm_data.get('region'))
+
+        actual_name = selection_scope.get('display_name') or crm_data.get('name') or customer_name
         
-        installed_data = data_service.get_detailed_plant_data(company_name=actual_name)
+        installed_data = data_service.get_detailed_plant_data(company_name=customer_name)
         fin_history = financial_service.get_financial_history(actual_name)
         balances = financial_service.get_latest_balance_sheet(actual_name)
         # Build comprehensive context for AI via historical_service
-        ib_sum = historical_service.get_ib_summary(actual_name)
-        crm_hist = historical_service.get_yearly_performance(actual_name)
+        ib_sum = historical_service.get_ib_summary(customer_name)
+        crm_hist = historical_service.get_yearly_performance(customer_name)
+        interactions = interaction_service.get_customer_interactions(customer_name)
 
         # Determine country for intelligence gathering
         country_value = crm_data.get('country')
@@ -167,7 +196,8 @@ def generate_steckbrief(customer_name: str = URLPath(...)):
             "crm": _safe_json(crm_data),
             "financial_history": fin_history,
             "latest_balance_sheet": balances,
-            "history": _safe_json(crm_hist)
+            "history": _safe_json(crm_hist),
+            "customer_interactions": _safe_json(interactions),
         }
         
         manager_briefing = internal_knowledge_service.get_manager_briefing_context(max_chars=6000)
@@ -181,6 +211,8 @@ def generate_steckbrief(customer_name: str = URLPath(...)):
             "internal_knowledge": internal_knowledge,
             "internal_knowledge_signals": knowledge_analysis.get("signals", {}),
             "manager_briefing": manager_briefing.get("content", ""),
+            "customer_interactions": _safe_json(interactions.get('interactions', [])),
+            "customer_interaction_summary": _safe_json(interactions.get('summary', {})),
         }
 
         web_context_parts = []
@@ -230,6 +262,30 @@ def generate_steckbrief(customer_name: str = URLPath(...)):
         if knowledge_analysis.get("signals"):
             profile["internal_knowledge_signals"] = knowledge_analysis["signals"]
         profile["internal_knowledge_status"] = internal_knowledge_service.get_status()
+        profile['customer_scope'] = _safe_json(selection_scope)
+        profile['customer_interactions'] = _safe_json(interactions.get('interactions', []))
+        profile['customer_interaction_summary'] = _safe_json(interactions.get('summary', {}))
+
+        interaction_summary = interactions.get('summary', {}) if isinstance(interactions, dict) else {}
+        if interaction_summary:
+            latest_visit_bits = []
+            if interaction_summary.get('last_contact_date'):
+                latest_visit_bits.append(f"Last contact: {interaction_summary['last_contact_date'][:10]}")
+            if interaction_summary.get('last_contact_location'):
+                latest_visit_bits.append(f"Location: {interaction_summary['last_contact_location']}")
+            if interaction_summary.get('last_contact_owner'):
+                latest_visit_bits.append(f"By: {interaction_summary['last_contact_owner']}")
+            if interaction_summary.get('last_contact_subject'):
+                latest_visit_bits.append(f"Subject: {interaction_summary['last_contact_subject']}")
+            if latest_visit_bits:
+                profile.setdefault('history', {})['latest_visits'] = ' | '.join(latest_visit_bits)
+
+        if interactions.get('source'):
+            profile.setdefault('references', [])
+            if isinstance(profile.get('references'), list):
+                interaction_ref = f"SAP Sales Cloud visit report: {interactions['source']}"
+                if interaction_ref not in profile['references']:
+                    profile['references'].append(interaction_ref)
 
         # Order-intake history for profile tab/export tables and charts.
         yearly_df = crm_hist.get('yearly_df') if isinstance(crm_hist, dict) else None

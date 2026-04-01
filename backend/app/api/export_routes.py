@@ -17,6 +17,7 @@ from app.services.data_service import data_service
 from app.services.historical_service import get_yearly_performance, get_ib_summary
 from app.services.web_enrichment_service import web_enrichment_service
 from app.services.profile_generator import profile_generator
+from app.services.interaction_service import interaction_service
 import plotly.express as px
 import pandas as pd
 
@@ -88,11 +89,18 @@ def export_docx(payload: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=400, detail="Missing profile or customer_name in payload")
         
     try:
+        selection_scope = data_service.resolve_company_selection(customer_name)
+        export_customer_name = selection_scope.get('display_name') or customer_name
         details = data_service.get_customer_detail(customer_name)
         charts = _generate_export_charts(customer_name, details)
         crm_history = get_yearly_performance(customer_name)
         ib_summary = get_ib_summary(customer_name)
         crm_country = str(details.get('crm', {}).get('country', '') or details.get('crm', {}).get('account_country', '') or '').strip()
+
+        if 'customer_interactions' not in profile or 'customer_interaction_summary' not in profile:
+            interactions = interaction_service.get_customer_interactions(customer_name)
+            profile['customer_interactions'] = interactions.get('interactions', [])
+            profile['customer_interaction_summary'] = interactions.get('summary', {})
         
         # Inject news dynamically if it was missing from the AI profile output
         if 'recent_news' not in profile:
@@ -101,14 +109,14 @@ def export_docx(payload: Dict[str, Any] = Body(...)):
                 profile['recent_news'] = news
         
         buffer = enhanced_export_service.generate_comprehensive_docx(
-            customer_name=customer_name,
+            customer_name=export_customer_name,
             profile_data=profile,
             customer_data={'projects': details.get('crm', {}).get('projects', []), 'installed_base': details.get('installed_base', []), 'crm_country': crm_country},
             charts=charts,
             crm_history=crm_history,
             ib_data=ib_summary
         )
-        filename = enhanced_export_service.generate_filename(customer_name, "docx")
+        filename = enhanced_export_service.generate_filename(export_customer_name, "docx")
         
         return StreamingResponse(
             buffer,
@@ -131,11 +139,18 @@ def export_pdf(payload: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=400, detail="Missing profile or customer_name in payload")
         
     try:
+        selection_scope = data_service.resolve_company_selection(customer_name)
+        export_customer_name = selection_scope.get('display_name') or customer_name
         details = data_service.get_customer_detail(customer_name)
         charts = _generate_export_charts(customer_name, details)
         crm_history = get_yearly_performance(customer_name)
         ib_summary = get_ib_summary(customer_name)
         crm_country = str(details.get('crm', {}).get('country', '') or details.get('crm', {}).get('account_country', '') or '').strip()
+
+        if 'customer_interactions' not in profile or 'customer_interaction_summary' not in profile:
+            interactions = interaction_service.get_customer_interactions(customer_name)
+            profile['customer_interactions'] = interactions.get('interactions', [])
+            profile['customer_interaction_summary'] = interactions.get('summary', {})
         
         # Inject news dynamically if it was missing from the AI profile output
         if 'recent_news' not in profile:
@@ -144,7 +159,7 @@ def export_pdf(payload: Dict[str, Any] = Body(...)):
                 profile['recent_news'] = news
         
         docx_buffer = enhanced_export_service.generate_comprehensive_docx(
-            customer_name=customer_name,
+            customer_name=export_customer_name,
             profile_data=profile,
             customer_data={'projects': details.get('crm', {}).get('projects', []), 'installed_base': details.get('installed_base', []), 'crm_country': crm_country},
             charts=charts,
@@ -158,14 +173,14 @@ def export_pdf(payload: Dict[str, Any] = Body(...)):
             # Keep export functional even when Word/docx2pdf is not available.
             print(f"DOCX->PDF conversion failed, falling back to native PDF renderer: {conv_err}")
             buffer = enhanced_export_service.generate_comprehensive_pdf(
-                customer_name=customer_name,
+                customer_name=export_customer_name,
                 profile_data=profile,
                 customer_data={'projects': details.get('crm', {}).get('projects', []), 'installed_base': details.get('installed_base', [])},
                 charts=charts,
                 crm_history=crm_history,
                 ib_data=ib_summary
             )
-        filename = enhanced_export_service.generate_filename(customer_name, "pdf")
+        filename = enhanced_export_service.generate_filename(export_customer_name, "pdf")
         
         return StreamingResponse(
             buffer,
@@ -188,17 +203,24 @@ def export_pptx(payload: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=400, detail="Missing profile or customer_name in payload")
 
     try:
+        selection_scope = data_service.resolve_company_selection(customer_name)
+        export_customer_name = selection_scope.get('display_name') or customer_name
         details = data_service.get_customer_detail(customer_name)
         crm_history = get_yearly_performance(customer_name)
 
+        if 'customer_interactions' not in profile or 'customer_interaction_summary' not in profile:
+            interactions = interaction_service.get_customer_interactions(customer_name)
+            profile['customer_interactions'] = interactions.get('interactions', [])
+            profile['customer_interaction_summary'] = interactions.get('summary', {})
+
         ai_slide_outline = profile_generator.generate_ppt_outline(
-            customer_name=customer_name,
+            customer_name=export_customer_name,
             profile_data=profile,
             crm_history=crm_history,
         )
 
         buffer = enhanced_export_service.generate_comprehensive_pptx(
-            customer_name=customer_name,
+            customer_name=export_customer_name,
             profile_data=profile,
             customer_data={
                 'projects': details.get('crm', {}).get('projects', []),
@@ -207,7 +229,7 @@ def export_pptx(payload: Dict[str, Any] = Body(...)):
             crm_history=crm_history,
             ai_slide_outline=ai_slide_outline,
         )
-        filename = enhanced_export_service.generate_filename(customer_name, "pptx")
+        filename = enhanced_export_service.generate_filename(export_customer_name, "pptx")
 
         return StreamingResponse(
             buffer,

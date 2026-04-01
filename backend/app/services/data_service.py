@@ -2,9 +2,11 @@
 Data ingestion service for loading and merging Excel/CSV files
 """
 import hashlib
+import re
 import shutil
 import time
 import threading
+import unicodedata
 import pandas as pd
 import duckdb
 from pathlib import Path
@@ -45,6 +47,20 @@ def _cache_clear():
 
 class DataIngestionService:
     """Service for loading and managing customer data from Excel files"""
+
+    GROUP_SELECTION_PREFIX = "group::"
+    LEGAL_SUFFIX_TOKENS = {
+        'ag', 'gmbh', 'mbh', 'inc', 'corp', 'corporation', 'co', 'company', 'ltd', 'limited',
+        'llc', 'plc', 'sa', 's.a', 's.a.', 'spa', 's.p.a', 's.p.a.', 'bv', 'nv', 'kg', 'kgaa',
+        'oy', 'oyj', 'ab', 'asa', 'sas', 'sarl', 'pte', 'pte.', 'ltda', 'sro', 'a.s', 'as',
+        'groupe', 'holding', 'holdings'
+    }
+    GENERIC_ROOT_TOKENS = {
+        'steel', 'group', 'industrial', 'industries', 'international', 'global', 'europe',
+        'north', 'south', 'east', 'west', 'america', 'asia', 'pacific', 'stainless', 'electrical',
+        'systems', 'technology', 'technologies', 'metals', 'metal', 'works', 'werk', 'plant',
+        'eisen', 'und', 'of', 'the', 'de', 'du', 'la', 'le', 'products', 'solutions'
+    }
     
     def __init__(self):
         self.db_path = settings.DB_PATH
@@ -127,6 +143,142 @@ class DataIngestionService:
         except Exception as snapshot_error:
             self.add_log(f"Failed to connect via snapshot copy: {snapshot_error}")
             raise snapshot_error
+
+    def _normalize_company_name(self, name: str) -> str:
+        raw = str(name or '').strip().lower()
+        if not raw:
+            return ''
+        ascii_name = unicodedata.normalize('NFKD', raw).encode('ascii', 'ignore').decode('ascii')
+        return re.sub(r'[^a-z0-9]+', '', ascii_name)
+
+    def _tokenize_company_name(self, name: str) -> List[str]:
+        raw = str(name or '').strip().lower()
+        if not raw:
+            return []
+        ascii_name = unicodedata.normalize('NFKD', raw).encode('ascii', 'ignore').decode('ascii')
+        ascii_name = re.sub(r'[-/,()]+', ' ', ascii_name)
+        tokens = [tok for tok in re.split(r'\s+', ascii_name) if tok]
+        while tokens and tokens[-1] in self.LEGAL_SUFFIX_TOKENS:
+            tokens.pop()
+        return tokens
+
+    def _extract_company_group_key(self, name: str) -> str:
+        tokens = self._tokenize_company_name(name)
+        if not tokens:
+            return ''
+        first = tokens[0]
+        if first in self.GENERIC_ROOT_TOKENS and len(tokens) > 1:
+            meaningful = [tok for tok in tokens if tok not in self.GENERIC_ROOT_TOKENS]
+            return ''.join(meaningful[:2]) if meaningful else ''.join(tokens[:2])
+        if len(first) < 4 and len(tokens) > 1:
+            return ''.join(tokens[:2])
+        return first
+
+    def _best_group_label(self, group_key: str, members: List[str]) -> str:
+        def _base_name(value: str) -> str:
+            return ''.join(self._tokenize_company_name(value))
+
+        exact = [member for member in members if _base_name(member) == group_key]
+        if exact:
+            return sorted(exact, key=len)[0]
+
+        first_token_matches = []
+        for member in members:
+            tokens = self._tokenize_company_name(member)
+            if tokens and tokens[0] == group_key:
+                first_token_matches.append(member)
+        if first_token_matches:
+            pretty = first_token_matches[0].split()[0]
+            return f"{pretty} Group"
+
+        return sorted(members, key=len)[0]
+
+    def get_company_hierarchy(self, region: str = 'All', country: str = 'All', equipment_type: str = 'All') -> Dict[str, List[Dict]]:
+        cache_key = f"company_hierarchy|{region}|{country}|{equipment_type}"
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+        names = self.get_all_company_names(region=region, country=country, equipment_type=equipment_type)
+        unique_names = sorted({str(name).strip() for name in names if str(name).strip()})
+        grouped: Dict[str, List[str]] = {}
+        for name in unique_names:
+            group_key = self._extract_company_group_key(name)
+            if not group_key:
+                continue
+            grouped.setdefault(group_key, []).append(name)
+
+        groups = []
+        grouped_names = set()
+        for group_key, members in grouped.items():
+            members = sorted(set(members))
+            if len(members) < 2:
+                continue
+            grouped_names.update(members)
+            groups.append({
+                'group_key': group_key,
+                'group_value': f'{self.GROUP_SELECTION_PREFIX}{group_key}',
+                'group_label': self._best_group_label(group_key, members),
+                'branch_count': len(members),
+                'branches': [{'label': member, 'value': member} for member in members],
+            })
+
+        groups.sort(key=lambda item: item['group_label'].lower())
+        standalone = [{'label': name, 'value': name} for name in unique_names if name not in grouped_names]
+
+        hierarchy = {
+            'company_names': unique_names,
+            'company_groups': groups,
+            'standalone_companies': standalone,
+        }
+        _cache_set(cache_key, hierarchy)
+        return hierarchy
+
+    def resolve_company_selection(self, company_name: str, region: str = 'All', country: str = 'All', equipment_type: str = 'All') -> Dict[str, object]:
+        selection = str(company_name or 'All').strip()
+        if not selection or selection == 'All':
+            return {
+                'selection_type': 'all',
+                'selection_value': 'All',
+                'display_name': 'All',
+                'group_key': None,
+                'company_names': [],
+            }
+
+        if selection.startswith(self.GROUP_SELECTION_PREFIX):
+            group_key = selection[len(self.GROUP_SELECTION_PREFIX):]
+            hierarchy = self.get_company_hierarchy(region=region, country=country, equipment_type=equipment_type)
+            for group in hierarchy.get('company_groups', []):
+                if group.get('group_key') == group_key:
+                    return {
+                        'selection_type': 'group',
+                        'selection_value': selection,
+                        'display_name': group.get('group_label') or group_key,
+                        'group_key': group_key,
+                        'company_names': [branch['value'] for branch in group.get('branches', [])],
+                    }
+            return {
+                'selection_type': 'group',
+                'selection_value': selection,
+                'display_name': group_key,
+                'group_key': group_key,
+                'company_names': [],
+            }
+
+        return {
+            'selection_type': 'company',
+            'selection_value': selection,
+            'display_name': selection,
+            'group_key': self._extract_company_group_key(selection),
+            'company_names': [selection],
+        }
+
+    def _append_in_filter(self, query: str, column_expr: str, values: List[str], params: List[object]) -> str:
+        if not values:
+            return query + ' AND 1=0'
+        placeholders = ', '.join(['?'] * len(values))
+        params.extend(values)
+        return query + f' AND {column_expr} IN ({placeholders})'
     
     def list_available_files(self) -> List[str]:
         """List all supported files in the data directory"""
@@ -594,6 +746,12 @@ class DataIngestionService:
                 WHERE 1=1
             """
         params = []
+        selection_scope = self.resolve_company_selection(
+            company_name,
+            region=region,
+            country=country,
+            equipment_type=equipment_type,
+        )
         if equipment_type != "All":
             # Map user label to actual sheet name if needed
             sheet_name = self.EQUIPMENT_MAP.get(equipment_type, equipment_type)
@@ -602,9 +760,8 @@ class DataIngestionService:
         if country != "All":
             query += " AND b.country_internal = ?"
             params.append(country)
-        if company_name != "All":
-            query += " AND COALESCE(m.crm_name, b.company_internal) = ?"
-            params.append(company_name)
+        if selection_scope['selection_type'] != 'all':
+            query = self._append_in_filter(query, 'COALESCE(m.crm_name, b.company_internal)', selection_scope['company_names'], params)
             
         try:
             df = self.execute_df(query, params)
@@ -625,6 +782,57 @@ class DataIngestionService:
                      if 'Region' in df.columns:
                         df = df[df['Region'].isna() | (df['Region'].fillna("").astype(str).str.strip() == "")]
                         self.add_log(f"Filtered to {len(df)} records for unassigned region")
+
+            # ── CRM-only fallback ────────────────────────────────────────────
+            # If a specific company was requested but no BCG plant records exist for it,
+            # synthesise rows from crm_data so the Overview / Inventory still shows data.
+            if df.empty and selection_scope['selection_type'] != 'all' and has_crm:
+                try:
+                    target_company_list = selection_scope.get('company_names', [])
+                    if target_company_list:
+                        crm_placeholders = ', '.join(['?'] * len(target_company_list))
+                        crm_fallback_query = f"""
+                            SELECT
+                                name,
+                                name      AS crm_name,
+                                name      AS company_internal,
+                                CAST(NULL AS VARCHAR)   AS equipment_type,
+                                country,
+                                country   AS country_internal,
+                                region    AS "Region",
+                                CAST(NULL AS VARCHAR)   AS site_name,
+                                CAST(NULL AS VARCHAR)   AS site_city,
+                                CAST(NULL AS VARCHAR)   AS city_internal,
+                                CAST(NULL AS VARCHAR)   AS "City",
+                                CAST(NULL AS DOUBLE)    AS capacity,
+                                CAST(NULL AS DOUBLE)    AS capacity_internal,
+                                CAST(NULL AS DOUBLE)    AS "Nominal Capacity",
+                                CAST(NULL AS VARCHAR)   AS status_internal,
+                                CAST(NULL AS VARCHAR)   AS "Status of the Plant",
+                                CAST(100.0 AS DOUBLE)   AS "Matching Quality %",
+                                TRY_CAST(latitude  AS DOUBLE) AS map_latitude,
+                                TRY_CAST(longitude AS DOUBLE) AS map_longitude,
+                                TRY_CAST(latitude  AS DOUBLE) AS latitude,
+                                TRY_CAST(longitude AS DOUBLE) AS longitude,
+                                company_ceo             AS CEO,
+                                fte_count               AS "Number of Full time employees",
+                                CAST(NULL AS VARCHAR)   AS manufacturer,
+                                CAST(NULL AS VARCHAR)   AS oem,
+                                CAST(NULL AS DOUBLE)    AS start_year_internal,
+                                CAST(NULL AS DOUBLE)    AS start_year,
+                                CAST(NULL AS DOUBLE)    AS year
+                            FROM crm_data
+                            WHERE name IN ({crm_placeholders})
+                        """
+                        df = self.execute_df(crm_fallback_query, target_company_list)
+                        if not df.empty:
+                            self.add_log(
+                                f"CRM-only fallback: {len(df)} records returned for "
+                                f"{selection_scope.get('display_name', 'company')} "
+                                f"(no BCG plant data found)."
+                            )
+                except Exception as _crm_err:
+                    self.add_log(f"CRM fallback error in get_detailed_plant_data: {_crm_err}")
 
             # Keep only the columns required by the dashboard and profile flows.
             preferred_columns = [
@@ -1098,6 +1306,12 @@ class DataIngestionService:
             return cached
         
         try:
+            selection_scope = self.resolve_company_selection(
+                company_name,
+                region=region,
+                country=country,
+                equipment_type=equipment_type,
+            )
             tables = self.execute_df("SHOW TABLES")['name'].tolist()
             if 'unified_companies' not in tables:
                 if 'crm_data' in tables:
@@ -1135,9 +1349,8 @@ class DataIngestionService:
                 params.append(internal_name)
 
             # Filter by company name
-            if company_name != "All":
-                query += " AND name = ?"
-                params.append(company_name)
+            if selection_scope['selection_type'] != 'all':
+                query = self._append_in_filter(query, 'name', selection_scope['company_names'], params)
 
             query += " ORDER BY equip_count DESC NULLS LAST"
             
@@ -1230,25 +1443,51 @@ class DataIngestionService:
             self.initialize_database()
 
         customer_data = {}
+        selection_scope = self.resolve_company_selection(customer_id)
+        selected_names = selection_scope.get('company_names', [])
 
         try:
-            unified = self.execute_df(
-                "SELECT * FROM unified_companies WHERE name = ?", [customer_id]
-            )
+            if selected_names:
+                placeholders = ', '.join(['?'] * len(selected_names))
+                unified = self.execute_df(
+                    f"SELECT * FROM unified_companies WHERE name IN ({placeholders})",
+                    selected_names,
+                )
+            else:
+                unified = pd.DataFrame()
             if not unified.empty:
                 import json
                 records = json.loads(json.dumps(unified.to_dict('records'), default=str))
-                customer_data['crm'] = records[0]
+                representative = records[0]
+                countries = sorted({str(r.get('country') or '').strip() for r in records if str(r.get('country') or '').strip()})
+                regions = sorted({str(r.get('region') or '').strip() for r in records if str(r.get('region') or '').strip()})
+                representative['name'] = selection_scope.get('display_name') or representative.get('name')
+                representative['selection_type'] = selection_scope.get('selection_type')
+                representative['member_companies'] = selected_names
+                representative['member_count'] = len(selected_names)
+                representative['country'] = countries[0] if len(countries) == 1 else ('Multi-country' if countries else representative.get('country'))
+                representative['region'] = regions[0] if len(regions) == 1 else ('Multi-region' if regions else representative.get('region'))
+                customer_data['crm'] = representative
         except Exception as e:
             self.add_log(f"get_customer_detail crm error: {e}")
 
         try:
-            params = [customer_id, customer_id]
-            eq_query = """
-                SELECT * FROM bcg_installed_base
-                WHERE (company_internal = ?
-                OR company_internal IN (SELECT bcg_name FROM company_mappings WHERE crm_name = ?))
-            """
+            params: List[object] = []
+            if selected_names:
+                placeholders = ', '.join(['?'] * len(selected_names))
+                params.extend(selected_names)
+                params.extend(selected_names)
+                eq_query = f"""
+                    SELECT * FROM bcg_installed_base
+                    WHERE (
+                        company_internal IN ({placeholders})
+                        OR company_internal IN (
+                            SELECT bcg_name FROM company_mappings WHERE crm_name IN ({placeholders})
+                        )
+                    )
+                """
+            else:
+                eq_query = "SELECT * FROM bcg_installed_base WHERE 1=0"
             if equipment_type != "All":
                 internal_name = self.EQUIPMENT_MAP.get(equipment_type, equipment_type)
                 eq_query += " AND equipment_type = ?"
@@ -1335,9 +1574,14 @@ class DataIngestionService:
                 internal = self.EQUIPMENT_MAP.get(equipment_type, equipment_type)
                 query += " AND equipment_type = ?"
                 params.append(internal)
-            if company_name != "All":
-                query += " AND COALESCE(m.crm_name, b.company_internal) = ?"
-                params.append(company_name)
+            selection_scope = self.resolve_company_selection(
+                company_name,
+                region=region,
+                country=country,
+                equipment_type=equipment_type,
+            )
+            if selection_scope['selection_type'] != 'all':
+                query = self._append_in_filter(query, 'COALESCE(m.crm_name, b.company_internal)', selection_scope['company_names'], params)
 
             df = self.execute_df(query, params)
             if df.empty:

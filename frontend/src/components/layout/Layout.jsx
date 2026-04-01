@@ -8,6 +8,15 @@ import api from '../../api/client';
 import smsLogo from '../../sms logo.png';
 import './Layout.css';
 
+const getCompanySelectionLabel = (selectedValue, groupOptions = []) => {
+    if (!selectedValue || selectedValue === 'All') {
+        return '';
+    }
+
+    const selectedGroup = groupOptions.find((group) => group.group_value === selectedValue);
+    return selectedGroup?.group_label || selectedValue;
+};
+
 const Layout = () => {
     const location = useLocation();
 
@@ -20,7 +29,7 @@ const Layout = () => {
     } = useFilterStore();
 
     // Global Data states
-    const { dataLoaded, setDataLoaded, logs, addLog, clearLogs } = useDataStore();
+    const { dataLoaded, setDataLoaded, addLog, clearLogs } = useDataStore();
 
     // UI fetching
     const [loadingDb, setLoadingDb] = useState(false);
@@ -39,35 +48,63 @@ const Layout = () => {
     const { data: equipmentList = ['All'] } = useQuery({ queryKey: ['equipments'], queryFn: getEquipmentTypes, enabled: dataLoaded });
 
     // Company Names Query - filtered by current region/country/equipment
-    const { data: companyNamesList = ['All'] } = useQuery({
+    const { data: companyHierarchy = { company_names: [], company_groups: [], standalone_companies: [] } } = useQuery({
         queryKey: ['company_names', { region, country, equipmentType }],
         queryFn: () => getCompanyNames({ region, country, equipment_type: equipmentType }),
         enabled: dataLoaded
     });
 
-    const activeCompanies = companyNamesList && companyNamesList.length > 0
-        ? ['All', ...companyNamesList]
-        : ['All'];
+    const groupOptions = Array.isArray(companyHierarchy?.company_groups) ? companyHierarchy.company_groups : [];
+    const standaloneOptions = Array.isArray(companyHierarchy?.standalone_companies) ? companyHierarchy.standalone_companies : [];
+    const allCompanyValues = ['All', ...(companyHierarchy?.company_names || [])];
+    const groupValues = groupOptions.map((group) => group.group_value);
+    const validCompanyValues = new Set([...allCompanyValues, ...groupValues]);
 
-    const uniqueCompanies = activeCompanies.filter((item, index, self) => self.indexOf(item) === index);
-    const filteredCompanies = uniqueCompanies.filter((item) => {
-        if (item === 'All') return true;
+    const filteredGroupOptions = groupOptions
+        .map((group) => {
+            const search = companySearchTerm.trim().toLowerCase();
+            if (!search) {
+                return group;
+            }
+            const groupMatch = String(group.group_label || '').toLowerCase().includes(search);
+            const branchMatch = (group.branches || []).filter((branch) =>
+                String(branch.label || '').toLowerCase().includes(search)
+            );
+            if (groupMatch) {
+                return group;
+            }
+            if (branchMatch.length > 0) {
+                return { ...group, branches: branchMatch };
+            }
+            return null;
+        })
+        .filter(Boolean);
+
+    const filteredStandaloneOptions = standaloneOptions.filter((item) => {
         if (!companySearchTerm.trim()) return true;
-        return item.toLowerCase().includes(companySearchTerm.trim().toLowerCase());
+        return String(item.label || '').toLowerCase().includes(companySearchTerm.trim().toLowerCase());
     });
+
+    const totalRenderedOptions =
+        1 +
+        filteredGroupOptions.reduce((acc, group) => acc + 1 + (group.branches || []).length, 0) +
+        filteredStandaloneOptions.length;
+
+    const totalAvailableOptions =
+        1 +
+        groupOptions.reduce((acc, group) => acc + 1 + (group.branches || []).length, 0) +
+        standaloneOptions.length;
 
     // If an invalid combination occurs, automatically select 'All' for Company Name
     useEffect(() => {
-        if (companyName !== 'All' && activeCompanies.length > 1 && !activeCompanies.includes(companyName)) {
+        if (companyName !== 'All' && validCompanyValues.size > 1 && !validCompanyValues.has(companyName)) {
             setCompanyName('All');
         }
-    }, [activeCompanies, companyName, setCompanyName]);
+    }, [validCompanyValues, companyName, setCompanyName]);
 
     useEffect(() => {
-        if (companyName && companyName !== 'All') {
-            setCompanySearchTerm(companyName);
-        }
-    }, [companyName]);
+        setCompanySearchTerm(getCompanySelectionLabel(companyName, groupOptions));
+    }, [companyName, groupOptions]);
 
     // Progress polling
     const stopPolling = useCallback(() => {
@@ -157,7 +194,7 @@ const Layout = () => {
                 if (isReloading) {
                     startPolling(statusJobId || progress?.job_id || null);
                 }
-            } catch (error) {
+            } catch {
                 try {
                     const progress = await getLoadProgress(activeLoadJobId);
                     const loadCompleted = Boolean(progress.done && !progress.error);
@@ -313,15 +350,35 @@ const Layout = () => {
                                     onChange={(e) => {
                                         const selected = e.target.value;
                                         setCompanyName(selected);
-                                        if (selected !== 'All') {
-                                            setCompanySearchTerm(selected);
-                                        }
+                                        setCompanySearchTerm(getCompanySelectionLabel(selected, groupOptions));
                                     }}
                                     title="Deep dive into a specific customer"
                                 >
-                                    {filteredCompanies.map(item => <option key={item} value={item}>{item}</option>)}
+                                    <option value="All">All</option>
+
+                                    {filteredGroupOptions.map((group) => (
+                                        <optgroup
+                                            key={group.group_key}
+                                            label={`${group.group_label} (${group.branch_count} branches)`}
+                                        >
+                                            <option value={group.group_value}>{group.group_label} (All branches)</option>
+                                            {(group.branches || []).map((branch) => (
+                                                <option key={`${group.group_key}-${branch.value}`} value={branch.value}>
+                                                    {'  '}• {branch.label}
+                                                </option>
+                                            ))}
+                                        </optgroup>
+                                    ))}
+
+                                    {filteredStandaloneOptions.length > 0 && (
+                                        <optgroup label="Standalone Companies">
+                                            {filteredStandaloneOptions.map((item) => (
+                                                <option key={item.value} value={item.value}>{item.label}</option>
+                                            ))}
+                                        </optgroup>
+                                    )}
                                 </select>
-                                <div className="company-filter-hint">Showing {filteredCompanies.length} of {uniqueCompanies.length} companies</div>
+                                <div className="company-filter-hint">Showing {totalRenderedOptions} of {totalAvailableOptions} company options</div>
                             </div>
                         </div>
                     )}
@@ -376,16 +433,7 @@ const Layout = () => {
                         )}
                     </div>
 
-                    {logs.length > 0 && (
-                        <div className="logs-container">
-                            <h4>System Logs</h4>
-                            <div className="logs-console">
-                                {logs.map((log, index) => (
-                                    <div key={index} className="log-line">{log}</div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
+
                 </div>
             </aside>
 

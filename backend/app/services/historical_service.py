@@ -20,6 +20,8 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from app.services.data_service import data_service
+
 logger = logging.getLogger(__name__)
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -100,23 +102,36 @@ def _match_company(df: pd.DataFrame, col: str, company: str, threshold: int = 60
 
 def get_ib_for_company(company: str) -> pd.DataFrame:
     """Return installed-base rows for the given company."""
+    scope = data_service.resolve_company_selection(company)
+    targets = scope.get('company_names', []) or [company]
     df = _load_ib()
-    # Try actual columns in BCG data
-    for col in ["Company", "Parent Company", "ib_customer", "account_name", "customer"]:
-        matched = _match_company(df, col, company)
-        if not matched.empty:
-            return matched.reset_index(drop=True)
-    return pd.DataFrame()
+    matches = []
+    for target in targets:
+        for col in ["Company", "Parent Company", "ib_customer", "account_name", "customer"]:
+            matched = _match_company(df, col, target)
+            if not matched.empty:
+                matches.append(matched)
+                break
+    if not matches:
+        return pd.DataFrame()
+    return pd.concat(matches, ignore_index=True).drop_duplicates().reset_index(drop=True)
 
 
 def get_crm_projects_for_company(company: str) -> pd.DataFrame:
     """Return CRM project rows for the given company."""
+    scope = data_service.resolve_company_selection(company)
+    targets = scope.get('company_names', []) or [company]
     df = _load_crm()
-    for col in ["Customer", "account_name", "company", "customer_project", "ib_customer"]:
-        matched = _match_company(df, col, company)
-        if not matched.empty:
-            return matched.reset_index(drop=True)
-    return pd.DataFrame()
+    matches = []
+    for target in targets:
+        for col in ["Customer", "account_name", "company", "customer_project", "ib_customer"]:
+            matched = _match_company(df, col, target)
+            if not matched.empty:
+                matches.append(matched)
+                break
+    if not matches:
+        return pd.DataFrame()
+    return pd.concat(matches, ignore_index=True).drop_duplicates().reset_index(drop=True)
 
 
 def get_yearly_performance(company: str) -> dict:

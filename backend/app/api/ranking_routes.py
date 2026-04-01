@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from app.services.ml_ranking_service import ml_ranking_service
+from app.services.data_service import data_service
 import app.services.historical_service as historical_service
 from app.services.external_feature_service import external_feature_service
 from app.services.web_enrichment_service import web_enrichment_service
@@ -173,7 +174,8 @@ def get_ranked_list(
     force_heuristic: bool = Query(default=False)
 ):
     try:
-        company_filter = company_name.strip() if company_name and company_name != "All" else None
+        selection_scope = data_service.resolve_company_selection(company_name or 'All')
+        company_filter = selection_scope.get('selection_value') if selection_scope.get('selection_type') != 'all' else None
 
         # If a specific company is selected, request a broader candidate set once on the backend.
         # This avoids frontend over-fetch while ensuring the selected company can be pinned.
@@ -188,20 +190,31 @@ def get_ranked_list(
         if df.empty:
             return {"rankings": []}
 
+        hierarchy = data_service.get_company_hierarchy(region='All', country='All', equipment_type='All')
+        group_label_map = {group['group_key']: group['group_label'] for group in hierarchy.get('company_groups', [])}
+
         if company_filter:
             records_all = df.to_dict(orient="records")
-            selected = None
+            selected = []
             others = []
+            target_names = set(selection_scope.get('company_names', []))
+            target_group_key = selection_scope.get('group_key')
+
             for rec in records_all:
                 rec_company = str(rec.get("company") or "").strip()
-                if selected is None and _company_matches(rec_company, company_filter):
-                    selected = rec
+                rec_group_key = data_service._extract_company_group_key(rec_company)
+                if selection_scope.get('selection_type') == 'group':
+                    if rec_company in target_names or (target_group_key and rec_group_key == target_group_key):
+                        selected.append(rec)
+                    else:
+                        others.append(rec)
                 else:
-                    others.append(rec)
+                    if _company_matches(rec_company, selection_scope.get('display_name', company_filter)):
+                        selected.append(rec)
+                    else:
+                        others.append(rec)
 
-            # If strict filter slice does not contain the selected account,
-            # attempt one broader lookup so the user-selected company is still shown.
-            if selected is None:
+            if not selected:
                 try:
                     df_company = ml_ranking_service.get_ranked_list(
                         equipment_type=None,
@@ -211,15 +224,75 @@ def get_ranked_list(
                     )
                     if not df_company.empty:
                         for rec in df_company.to_dict(orient="records"):
-                            if _company_matches(str(rec.get("company") or "").strip(), company_filter):
-                                selected = rec
-                                break
+                            rec_company = str(rec.get("company") or "").strip()
+                            rec_group_key = data_service._extract_company_group_key(rec_company)
+                            if selection_scope.get('selection_type') == 'group':
+                                if rec_company in target_names or (target_group_key and rec_group_key == target_group_key):
+                                    selected.append(rec)
+                            elif _company_matches(rec_company, selection_scope.get('display_name', company_filter)):
+                                selected.append(rec)
                 except Exception:
-                    # Keep normal flow even if fallback probe fails.
                     pass
 
-            limited = others[: max(0, top_k - 1)] if top_k else others
-            records = ([selected] if selected else []) + limited
+            # ── CRM-only fallback ────────────────────────────────────────────
+            # Company exists in CRM but has no BCG installed-base records.
+            # Synthesise a ranking entry from CRM data so the page is not blank.
+            if not selected:
+                try:
+                    crm_rows_df = data_service.execute_df(
+                        "SELECT name, country, region, rating, fte_count FROM crm_data WHERE name IS NOT NULL"
+                    )
+                    display_name_target = selection_scope.get('display_name', company_filter or '')
+                    for _, crm_row in crm_rows_df.iterrows():
+                        crm_name = str(crm_row.get('name', '') or '').strip()
+                        if not crm_name:
+                            continue
+                        # Match against every name in the target set or the display label
+                        is_match = any(_company_matches(crm_name, t) for t in target_names)
+                        if not is_match and display_name_target:
+                            is_match = _company_matches(crm_name, display_name_target)
+                        if not is_match:
+                            continue
+
+                        rating_str = str(crm_row.get('rating', '') or '').upper().strip()
+                        rating_score = {'A': 75.0, 'B': 60.0, 'C': 45.0, 'D': 30.0}.get(
+                            rating_str[:1] if rating_str else '', 40.0
+                        )
+                        selected.append({
+                            'company': crm_name,
+                            'equipment_type': 'Not in BCG Installed Base',
+                            'country': str(crm_row.get('country', '') or ''),
+                            'site': '',
+                            'site_city': '',
+                            'equipment_age': 0.0,
+                            'priority_score': rating_score,
+                            'base_priority_score': rating_score,
+                            'rerank_adjustment': 0.0,
+                            'confidence_score': 0.0,
+                            'is_sms_oem': 0,
+                            'crm_rating_num': {'A': 4, 'B': 3, 'C': 2, 'D': 1}.get(
+                                rating_str[:1] if rating_str else '', 2
+                            ),
+                            'log_fte': 0.0,
+                            'knowledge_doc_count': 0,
+                            'knowledge_best_match_score': 0.0,
+                            'knowledge_avg_match_score': 0.0,
+                            'knowledge_service_signal': 0.0,
+                            'knowledge_inspection_signal': 0.0,
+                            'knowledge_modernization_signal': 0.0,
+                            'knowledge_digital_signal': 0.0,
+                            'knowledge_decarbonization_signal': 0.0,
+                            'knowledge_project_signal': 0.0,
+                            'knowledge_quality_signal': 0.0,
+                            'data_source': 'crm_only',
+                        })
+                except Exception as _crm_exc:
+                    import logging as _log
+                    _log.getLogger(__name__).warning("CRM ranking fallback failed: %s", _crm_exc)
+
+            available = max(0, top_k - len(selected)) if top_k else None
+            limited = others[:available] if available is not None else others
+            records = selected + limited
         else:
             records = df.to_dict(orient="records")
 
@@ -276,8 +349,17 @@ def get_ranked_list(
             
         # Enrich records for frontend explanation and badges.
         for rec in records:
+            rec_group_key = data_service._extract_company_group_key(rec.get('company'))
+            rec['company_group_key'] = rec_group_key
+            rec['company_group_label'] = group_label_map.get(rec_group_key, '')
             age = rec.get("equipment_age", 0)
-            if age >= 30:
+            if rec.get('data_source') == 'crm_only':
+                rec["opportunity_type"] = "CRM Contact — Verify Scope"
+                rec["opportunity_description"] = (
+                    "No plant record found in BCG installed base. "
+                    "Equipment type and age are unknown — verify during first customer contact."
+                )
+            elif age >= 30:
                 rec["opportunity_type"] = "OEM Replacement"
                 rec["opportunity_description"] = f"Equipment is {age:.1f} years old. High probability of full replacement."
             elif age >= 15:

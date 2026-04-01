@@ -95,24 +95,60 @@ const Histogram = ({ values, label, unit = '', color = '#6c63ff', bins = 20 }) =
     );
 };
 
+// ── Status → fixed colour mapping (green = operating, red = shut down) ────
+const STATUS_COLOR_MAP = {
+    'operating': '#22c55e',
+    'operational': '#22c55e',
+    'active': '#22c55e',
+    'shut down': '#ef4444',
+    'shutdown': '#ef4444',
+    'abandoned': '#ef4444',
+    'demolished': '#ef4444',
+    'idle': '#f59e0b',
+    'standby': '#f59e0b',
+    'mothballed': '#f59e0b',
+    'commissioning': '#3b82f6',
+    'ramp-up': '#3b82f6',
+    'planned': '#a78bfa',
+    'unknown': '#6b7280',
+};
+
+const getStatusColor = (label, fallbackIndex, fallbackPalette) => {
+    const key = String(label || '').toLowerCase().trim();
+    for (const [k, v] of Object.entries(STATUS_COLOR_MAP)) {
+        if (key.includes(k)) return v;
+    }
+    return fallbackPalette[fallbackIndex % fallbackPalette.length];
+};
+
 // ── Donut chart for categorical data ─────────────────────────────────────
-const DonutChart = ({ data, title, palette }) => {
+const FALLBACK_PALETTE = ['#22c55e', '#f59e0b', '#ef4444', '#6b7280', '#a78bfa'];
+
+const DonutChart = ({ data, title, palette, useStatusColors = false }) => {
     const entries = Object.entries(data || {}).sort((a, b) => b[1] - a[1]);
     const total = entries.reduce((s, [, v]) => s + v, 0);
     if (!total) return null;
 
-    let cumAngle = -Math.PI / 2;
-    const slices = entries.map(([label, value], i) => {
-        const angle = (value / total) * 2 * Math.PI;
-        const start = cumAngle;
-        cumAngle += angle;
-        const x1 = 50 + 40 * Math.cos(start);
-        const y1 = 50 + 40 * Math.sin(start);
-        const x2 = 50 + 40 * Math.cos(cumAngle);
-        const y2 = 50 + 40 * Math.sin(cumAngle);
-        const large = angle > Math.PI ? 1 : 0;
-        return { label, value, color: palette[i % palette.length], x1, y1, x2, y2, large };
-    });
+    const slices = entries
+        .reduce((acc, [label, value], i) => {
+            const angle = (value / total) * 2 * Math.PI;
+            const start = acc.cumAngle;
+            const end = start + angle;
+            const x1 = 50 + 40 * Math.cos(start);
+            const y1 = 50 + 40 * Math.sin(start);
+            const x2 = 50 + 40 * Math.cos(end);
+            const y2 = 50 + 40 * Math.sin(end);
+            const large = angle > Math.PI ? 1 : 0;
+            const resolvedPalette = palette || FALLBACK_PALETTE;
+            const color = useStatusColors
+                ? getStatusColor(label, i, resolvedPalette)
+                : resolvedPalette[i % resolvedPalette.length];
+
+            acc.slices.push({ label, value, color, x1, y1, x2, y2, large });
+            acc.cumAngle = end;
+            return acc;
+        }, { cumAngle: -Math.PI / 2, slices: [] })
+        .slices;
 
     return (
         <div className="donut-wrap">
@@ -150,7 +186,6 @@ const DonutChart = ({ data, title, palette }) => {
 };
 
 // ── Main Statistics Panel ─────────────────────────────────────────────────
-const STATUS_PALETTE = ['#22c55e', '#f59e0b', '#ef4444', '#6b7280', '#a78bfa'];
 const EQUIP_PALETTE = ['#6c63ff', '#06b6d4', '#f59e0b', '#ec4899', '#22c55e',
     '#f97316', '#8b5cf6', '#14b8a6', '#facc15', '#64748b'];
 
@@ -175,7 +210,7 @@ const StatisticsPanel = ({ summary, displayTotal }) => {
 
             {/* Row 1: donuts */}
             <div className="stats-row-2">
-                <DonutChart data={status_counts} title="Operational Status" palette={STATUS_PALETTE} />
+                <DonutChart data={status_counts} title="Operational Status" useStatusColors={true} />
                 <DonutChart data={equipment_counts} title="Top Equipment Types" palette={EQUIP_PALETTE} />
             </div>
 
